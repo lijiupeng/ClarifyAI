@@ -18,7 +18,7 @@
     "dev:server": "npm run dev -w @clarifyai/server",
     "dev:web": "npm run dev -w @clarifyai/web",
     "build": "npm run build -w @clarifyai/shared && npm run build -w @clarifyai/web && npm run build -w @clarifyai/server",
-    "typecheck": "tsc -b --pretty",
+    "typecheck": "npm run typecheck -w @clarifyai/shared && npm run typecheck -w @clarifyai/server && npm run typecheck -w @clarifyai/web",
     "start": "npm run start -w @clarifyai/server",
     "mcp:inspect": "npm run mcp:inspect -w @clarifyai/server"
   },
