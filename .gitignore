@@ -1,0 +1,20 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# 运行时数据（会话/需求树持久化）
+.clarifyai/
+
+# 日志与环境
+*.log
+.env
+.env.local
+
+# 浏览器验证工具产生的临时快照
+.playwright-cli/
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

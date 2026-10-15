@@ -1,0 +1,28 @@
+{
+  "name": "clarifyai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ClarifyAI —— 让 AI 无偏差理解用户需求的需求澄清与逐层拆解工具",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev -w @clarifyai/server",
+    "dev:web": "npm run dev -w @clarifyai/web",
+    "build": "npm run build -w @clarifyai/shared && npm run build -w @clarifyai/web && npm run build -w @clarifyai/server",
+    "typecheck": "tsc -b --pretty",
+    "start": "npm run start -w @clarifyai/server",
+    "mcp:inspect": "npm run mcp:inspect -w @clarifyai/server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3"
+  }
+}
