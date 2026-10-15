@@ -96,13 +96,18 @@ No native plugin is required.
 
 - Node.js **>= 20**
 
-### Run from npm (recommended)
+### Install from GitHub Releases (recommended)
+
+Download `clarifyai-x.y.z.tgz` from [Releases](https://github.com/lijiupeng/ClarifyAI/releases), then:
 
 ```bash
-npx clarifyai --mode=http
+npm install -g ./clarifyai-0.1.0.tgz   # global install
+clarifyai --mode=http                  # start
 ```
 
-Then open **http://127.0.0.1:4317**. The package is downloaded on first run and cached afterwards.
+Open **http://127.0.0.1:4317**. The tarball **already ships the frontend build** — no separate build step or Vite server needed.
+
+> Prefer not to install globally: `npm install ./clarifyai-0.1.0.tgz && npx clarifyai --mode=http`
 
 ### Run from source
 

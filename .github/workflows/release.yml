@@ -1,0 +1,55 @@
+name: Release
+
+# 打 tag 即发布：类型检查 → 冒烟 → 构建 → 打包 → 附到 Release。
+#
+# 之所以走 Actions 而不是本地 `gh release create`：发布链路完全不需要本地凭据，
+# 且任何人 push 同一个 tag 都能复现出这一份产物。
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build · pack · publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 发布前必须绿：宁可这次不出包，也不要发一个跑不起来的版本出去
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Smoke test
+        run: npm run smoke -w clarifyai
+
+      - name: Build
+        run: npm run build
+
+      # 必须在包目录下 pack —— 这样 dist/、README、LICENSE 才会被打进去
+      - name: Pack
+        working-directory: packages/server
+        run: npm pack
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            packages/server/*.tgz \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
