@@ -275,6 +275,32 @@ export class SessionService {
     };
   }
 
+  /**
+   * 启动时清理陈旧状态：把残留的 awaiting-agent 交回用户。
+   *
+   * 阻塞等待队列活在内存在里，服务一重启就没了 —— 此时盘上的 awaiting-agent
+   * 意味着「画布还在等一个永远不会到来的 AI 回复」，用户打开就是一片只读。
+   * 没人会为一次重启负责，所以由启动流程统一兜底。
+   */
+  async recoverStaleSessions(): Promise<number> {
+    const listed = await this.store.list();
+    let recovered = 0;
+
+    for (const item of listed) {
+      if (item.status !== 'awaiting-agent') continue;
+
+      const session = await this.store.load(item.id);
+      if (!session) continue;
+
+      session.status = 'awaiting-user';
+      session.updatedAt = Date.now();
+      await this.store.save(session);
+      recovered += 1;
+    }
+
+    return recovered;
+  }
+
   /** 把会话交回用户操作：awaiting-agent → awaiting-user */
   private async handBack(sessionId: string): Promise<void> {
     const session = await this.store.load(sessionId);

@@ -45,6 +45,12 @@ async function main(): Promise<void> {
     emit: (sessionId, event, payload) => hub?.emit(sessionId, event, payload),
   });
 
+  // 重启会丢掉内存里的阻塞等待，先把上一条命留下的 awaiting-agent 交回用户
+  const recovered = await service.recoverStaleSessions();
+  if (recovered > 0) {
+    process.stderr.write(`[clarifyai] 已把 ${recovered} 个因重启而卡住的会话交回用户\n`);
+  }
+
   const preset = process.env.CLARIFY_TOOLS ?? 'standard';
 
   if (config.mode === 'http' || config.mode === 'both') {

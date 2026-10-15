@@ -1,6 +1,6 @@
 {
   "name": "clarifyai",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "让 AI 在写代码前把需求问清楚 —— MCP 驱动的需求澄清与逐层拆解工具",
   "license": "MIT",
   "type": "module",
