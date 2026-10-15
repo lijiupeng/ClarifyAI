@@ -1,6 +1,7 @@
 {
   "name": "clarifyai",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "description": "ClarifyAI —— 让 AI 无偏差理解用户需求的需求澄清与逐层拆解工具",
