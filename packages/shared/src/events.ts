@@ -6,7 +6,7 @@
  * - 用户在画布上编辑 / 裁决     → 服务端广播并唤醒阻塞中的主 Agent
  */
 import { z } from 'zod';
-import { RequirementNode, Session } from './schema.js';
+import { RequirementNode, Session, SessionStatus } from './schema.js';
 
 /* ---------------------------- 服务端 → 客户端 ---------------------------- */
 
@@ -35,6 +35,14 @@ export type SessionSnapshotPayload = z.infer<typeof SessionSnapshotPayload>;
 export const SessionPatchedPayload = z.object({
   sessionId: z.string(),
   round: z.number().int(),
+  /**
+   * 变更后的会话状态。
+   *
+   * 必须带上：AI 提交新一轮拆解时状态会从 awaiting-agent 变回 awaiting-user，
+   * 而节点增删和状态变化是两件事 —— 只推节点的话，画布会「看得到新分支、
+   * 但按钮一直灰着」，因为 editable 判定的是状态而不是节点。
+   */
+  status: SessionStatus,
   upserted: z.array(RequirementNode).default([]),
   removedIds: z.array(z.string()).default([]),
   /** 本轮拆解思路说明 */
@@ -45,6 +53,8 @@ export type SessionPatchedPayload = z.infer<typeof SessionPatchedPayload>;
 export const AgentBusyPayload = z.object({
   sessionId: z.string(),
   busy: z.boolean(),
+  /** 同 SessionPatchedPayload.status：交回控制权时会只改状态、不动节点，必须一并同步 */
+  status: SessionStatus,
   message: z.string().default(''),
 });
 export type AgentBusyPayload = z.infer<typeof AgentBusyPayload>;

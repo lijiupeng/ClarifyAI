@@ -94,10 +94,15 @@ export const useSessionStore = defineStore('session', () => {
         if (payload.agentNote) agentNote.value = payload.agentNote;
         upsertRemote(payload.upserted);
         removeRemote(payload.removedIds);
+        // 状态必须一并同步：节点变了 ≠「球交回自己了」。
+        // 漏掉这行，AI 提交完新拆解后画布看得到新分支、按钮却一直灰着。
+        if (session.value) session.value.status = payload.status;
       },
       onAgentBusy: (payload) => {
         agentBusy.value = payload.busy;
         if (payload.message) agentNote.value = payload.message;
+        // 同上：交回控制权时可能只改状态、不动任何节点
+        if (session.value) session.value.status = payload.status;
       },
       onClosed: (payload) => {
         if (session.value) session.value.status = payload.status;

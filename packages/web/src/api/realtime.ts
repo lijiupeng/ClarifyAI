@@ -1,11 +1,18 @@
 import { ClientEvent, ServerEvent } from '@clarifyai/shared';
-import type { Session, SessionPatchedPayload } from '@clarifyai/shared';
+import type {
+  AgentBusyPayload,
+  ClosedPayload,
+  Session,
+  SessionPatchedPayload,
+} from '@clarifyai/shared';
 
+// 一律复用契约类型，不要在这里手写形状 ——
+// 手写的话契约加了字段前端不会报错，只会在运行时静默缺失（踩过）。
 export interface RealtimeHandlers {
   onSnapshot: (session: Session) => void;
   onPatched: (payload: SessionPatchedPayload) => void;
-  onAgentBusy: (payload: { busy: boolean; message: string }) => void;
-  onClosed: (payload: { status: 'completed' | 'aborted'; message: string }) => void;
+  onAgentBusy: (payload: AgentBusyPayload) => void;
+  onClosed: (payload: ClosedPayload) => void;
   onStatusChange: (status: 'connecting' | 'online' | 'offline') => void;
 }
 
@@ -50,10 +57,10 @@ export function connectRealtime(sessionId: string, handlers: RealtimeHandlers): 
         handlers.onPatched(envelope.payload as SessionPatchedPayload);
         break;
       case ServerEvent.AGENT_BUSY:
-        handlers.onAgentBusy(envelope.payload as { busy: boolean; message: string });
+        handlers.onAgentBusy(envelope.payload as AgentBusyPayload);
         break;
       case ServerEvent.CLOSED:
-        handlers.onClosed(envelope.payload as { status: 'completed' | 'aborted'; message: string });
+        handlers.onClosed(envelope.payload as ClosedPayload);
         break;
       default:
         break;

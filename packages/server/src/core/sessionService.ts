@@ -165,6 +165,7 @@ export class SessionService {
     this.emit(session.id, ServerEvent.PATCHED, {
       sessionId: session.id,
       round: session.round,
+      status: session.status,
       upserted: [...created, ...repliedNodes],
       removedIds: [],
       agentNote: input.agentNote,
@@ -173,6 +174,7 @@ export class SessionService {
     this.emit(session.id, ServerEvent.AGENT_BUSY, {
       sessionId: session.id,
       busy: false,
+      status: session.status,
       message: input.agentNote || 'AI 已提交新一轮拆解，请继续裁决',
     });
 
@@ -285,6 +287,7 @@ export class SessionService {
     this.emit(sessionId, ServerEvent.AGENT_BUSY, {
       sessionId,
       busy: false,
+      status: session.status,
       message: 'AI 已收到你的裁决',
     });
   }
@@ -482,6 +485,7 @@ export class SessionService {
     this.emit(sessionId, ServerEvent.PATCHED, {
       sessionId,
       round: session.round,
+      status: session.status,
       upserted: patch.upserted,
       removedIds: patch.removedIds,
       agentNote: '',
@@ -534,6 +538,7 @@ export class SessionService {
       this.emit(sessionId, ServerEvent.AGENT_BUSY, {
         sessionId,
         busy: true,
+        status: session.status,
         message: '已提交，等待 AI 处理',
       });
     }
