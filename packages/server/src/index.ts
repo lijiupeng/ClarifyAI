@@ -11,6 +11,18 @@ import { createApp } from './http/routes.js';
 import { RealtimeHub } from './http/ws.js';
 
 /**
+ * 启动期的可预期错误（端口占用等）。
+ * message 本身就是一段可以直接给用户看的说明，因此顶层不再追加堆栈 ——
+ * 「端口被占用」这种事甩一堆 node:events 堆栈出去，用户根本看不出该干什么。
+ */
+class StartupError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StartupError';
+  }
+}
+
+/**
  * 单进程同时承载两条对外通道：
  * - stdio MCP  → 主 Agent（由它拉起本进程作为子进程）
  * - HTTP + WS  → 浏览器画布
@@ -59,12 +71,29 @@ async function main(): Promise<void> {
     // HTTP 模式下同时挂载 MCP over HTTP：服务常驻，主 Agent 与画布共享同一实例
     const app = createApp({ service, store, config, mountMcp: true, toolPreset: preset });
     const server = http.createServer(app);
-    hub.attach(server);
 
+    // 先 listen 成功、再挂 WebSocket。反过来的话，端口被占用会同时触发
+    // http server 与 WebSocketServer 两处 error，后者无人监听会直接崩成未捕获异常 ——
+    // 用户看到的就是一坨 node:events 堆栈。
     await new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
+      server.once('error', (error: NodeJS.ErrnoException) => {
+        if (error.code === 'EADDRINUSE') {
+          reject(
+            new StartupError(
+              `端口 ${config.httpPort} 已被占用，服务无法启动。\n` +
+                `  最可能的原因：上一个 ClarifyAI 实例还在后台运行。\n` +
+                `  · 查占用者：netstat -ano | findstr :${config.httpPort}\n` +
+                `  · 或换端口：clarifyai --mode=http --port 4318`,
+            ),
+          );
+          return;
+        }
+        reject(error);
+      });
       server.listen(config.httpPort, config.host, resolve);
     });
+
+    hub.attach(server);
 
     process.stderr.write(
       `[clarifyai] 画布服务      http://${config.host}:${config.httpPort}\n` +
@@ -83,6 +112,12 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
+  // 可预期的启动失败只给结论，不给堆栈
+  if (error instanceof StartupError) {
+    process.stderr.write(`[clarifyai] ${error.message}\n`);
+    process.exit(1);
+  }
+
   const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
   process.stderr.write(`[clarifyai] 启动失败：${detail}\n`);
   process.exit(1);
