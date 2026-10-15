@@ -1,5 +1,7 @@
 # ClarifyAI
 
+**简体中文** | [English](README.en.md)
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-compatible-6f42c1.svg)
