@@ -34,7 +34,7 @@ jobs:
 
       # 端到端冒烟：开启会话 → 用户裁决 → 回灌 → 再拆解 → 收口
       - name: Smoke test
-        run: npm run smoke -w @clarifyai/server
+        run: npm run smoke -w clarifyai
 
       # 构建同时验证 tsup 打包与前端产物随包分发
       - name: Build

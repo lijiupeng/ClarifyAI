@@ -1,6 +1,7 @@
 {
-  "name": "@clarifyai/server",
+  "name": "clarifyai",
   "version": "0.1.0",
+  "description": "让 AI 在写代码前把需求问清楚 —— MCP 驱动的需求澄清与逐层拆解工具",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -10,12 +11,36 @@
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lijiupeng/ClarifyAI.git",
+    "directory": "packages/server"
+  },
+  "homepage": "https://github.com/lijiupeng/ClarifyAI#readme",
+  "bugs": {
+    "url": "https://github.com/lijiupeng/ClarifyAI/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "ai-agents",
+    "requirements",
+    "requirements-engineering",
+    "spec-driven-development",
+    "claude-code",
+    "cursor",
+    "mindmap"
+  ],
   "scripts": {
     "dev": "tsx watch src/index.ts --mode=both",
     "start": "tsx src/index.ts --mode=both",
     "start:http": "tsx src/index.ts --mode=http",
     "mcp": "tsx src/index.ts --mode=mcp",
-    "build": "tsup && node scripts/copy-web.mjs",
+    "build": "tsup && node scripts/copy-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "smoke": "tsx scripts/smoke.ts",
     "mcp:inspect": "npx -y @modelcontextprotocol/inspector tsx src/index.ts --mode=mcp"

@@ -15,12 +15,12 @@
   ],
   "scripts": {
     "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
-    "dev:server": "npm run dev -w @clarifyai/server",
+    "dev:server": "npm run dev -w clarifyai",
     "dev:web": "npm run dev -w @clarifyai/web",
-    "build": "npm run build -w @clarifyai/shared && npm run build -w @clarifyai/web && npm run build -w @clarifyai/server",
-    "typecheck": "npm run typecheck -w @clarifyai/shared && npm run typecheck -w @clarifyai/server && npm run typecheck -w @clarifyai/web",
-    "start": "npm run start -w @clarifyai/server",
-    "mcp:inspect": "npm run mcp:inspect -w @clarifyai/server"
+    "build": "npm run build -w @clarifyai/shared && npm run build -w @clarifyai/web && npm run build -w clarifyai",
+    "typecheck": "npm run typecheck -w @clarifyai/shared && npm run typecheck -w clarifyai && npm run typecheck -w @clarifyai/web",
+    "start": "npm run start -w clarifyai",
+    "mcp:inspect": "npm run mcp:inspect -w clarifyai"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

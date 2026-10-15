@@ -96,6 +96,14 @@ No native plugin is required.
 
 - Node.js **>= 20**
 
+### Run from npm (recommended)
+
+```bash
+npx clarifyai --mode=http
+```
+
+Then open **http://127.0.0.1:4317**. The package is downloaded on first run and cached afterwards.
+
 ### Run from source
 
 ```bash
@@ -247,7 +255,7 @@ baseline snapshot, and round cursor.
 npm install
 npm run dev                    # backend (4317) + frontend Vite (5173)
 
-npm run smoke -w @clarifyai/server   # end-to-end smoke test (24 assertions)
+npm run smoke -w clarifyai    # end-to-end smoke test (24 assertions)
 npm run typecheck                    # type checking
 npm run build                        # build all artifacts
 ```

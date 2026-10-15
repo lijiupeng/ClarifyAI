@@ -86,6 +86,14 @@ ClarifyAI 用「轮次游标 + 落盘数据」兜底：
 
 - Node.js **>= 20**
 
+### 从 npm 运行（推荐）
+
+```bash
+npx clarifyai --mode=http
+```
+
+然后打开 **http://127.0.0.1:4317** 即可。首次运行会自动下载包，之后走本地缓存。
+
 ### 从源码运行
 
 ```bash
@@ -230,7 +238,7 @@ MCP 工具解决的是「怎么调」，**skill 解决的是「什么时候该�
 npm install
 npm run dev                    # 同时启动后端(4317)与前端 Vite(5173)
 
-npm run smoke -w @clarifyai/server   # 端到端冒烟测试（24 项断言）
+npm run smoke -w clarifyai    # 端到端冒烟测试（24 项断言）
 npm run typecheck                    # 类型检查
 npm run build                        # 构建全部产物
 ```
