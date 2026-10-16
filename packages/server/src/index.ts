@@ -54,6 +54,7 @@ async function main(): Promise<void> {
     broker,
     webOrigin: uiBase,
     autoOpen: config.autoOpenBrowser,
+    maxBlockMs: config.maxBlockMs,
     emit: (sessionId, event, payload) => hub?.emit(sessionId, event, payload),
   });
 
@@ -71,6 +72,11 @@ async function main(): Promise<void> {
     // HTTP 模式下同时挂载 MCP over HTTP：服务常驻，主 Agent 与画布共享同一实例
     const app = createApp({ service, store, config, mountMcp: true, toolPreset: preset });
     const server = http.createServer(app);
+
+    // clarify_await 最长可能阻塞 10 分钟，而 Node 的 requestTimeout 默认是 5 分钟。
+    // 它一旦把连接掐掉，主 Agent 收到的就是一次「超时失败」而不是 pending ——
+    // 这与「宁可提前返回，也不能让请求被杀」的原则直接冲突，所以直接关掉这条超时。
+    server.requestTimeout = 0;
 
     // 先 listen 成功、再挂 WebSocket。反过来的话，端口被占用会同时触发
     // http server 与 WebSocketServer 两处 error，后者无人监听会直接崩成未捕获异常 ——

@@ -133,6 +133,15 @@ export const Session = z.object({
    * 服务重启会清空内存里的反馈历史，靠它才能把「用户提交过什么」从磁盘上重算出来。
    */
   lastAction: z.enum(['confirmed', 'need-more', 'abort']).nullish(),
+  /**
+   * 用户本轮明确要求展开的节点 id（点过「推断分支 / 推断下一个分支 / 继续拆解选中项」）。
+   *
+   * 这是**新增节点的唯一授权凭据**，每次用户提交整体覆盖，因此天然是一次性的：
+   * AI 只能为出现在这里的节点添加子节点，用户没点按钮时它是空数组。
+   * 之所以落盘而不是只留在内存里，是因为它必须能扛住服务重启 ——
+   * 否则重启后「授权」凭空消失，AI 又会退回靠自觉行事。
+   */
+  expandTargets: z.array(Id).default([]),
   /** 允许的最大拆解深度，防止无限递归 */
   maxDepth: z.number().int().min(1).max(6).default(3),
   nodes: z.array(RequirementNode).default([]),

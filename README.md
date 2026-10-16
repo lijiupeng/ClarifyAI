@@ -91,13 +91,13 @@ ClarifyAI 用「轮次游标 + 落盘数据」兜底：
 到 [Releases](https://github.com/lijiupeng/ClarifyAI/releases) 下载 `clarifyai-x.y.z.tgz`，然后：
 
 ```bash
-npm install -g ./clarifyai-0.1.0.tgz   # 全局安装
+npm install -g ./clarifyai-0.1.4.tgz   # 全局安装
 clarifyai --mode=http                  # 启动
 ```
 
 打开 **http://127.0.0.1:4317** 即可。**包内已包含前端产物**，不需要再单独构建或启动 Vite。
 
-> 不想全局安装的话：`npm install ./clarifyai-0.1.0.tgz && npx clarifyai --mode=http`
+> 不想全局安装的话：`npm install ./clarifyai-0.1.4.tgz && npx clarifyai --mode=http`
 
 ### 从源码运行
 

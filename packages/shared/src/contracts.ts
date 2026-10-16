@@ -89,11 +89,13 @@ export const AwaitInput = z.object({
     .number()
     .int()
     .min(1000)
-    .max(300000)
+    .max(600000)
     .default(25_000)
     .describe(
-      '单次阻塞上限（毫秒）。注意：MCP 宿主对工具调用通常有约 60 秒的超时，设太大请求会被宿主直接掐断（实测 120 秒必然被拦）。' +
-        '保持默认即可，超时返回 pending 后再调一次，用户操作不会丢失',
+      '单次阻塞上限（毫秒）。注意：MCP 宿主对工具调用有硬超时，超了整次调用会被直接掐断，' +
+        '而这个上限由宿主的 MCP 配置决定 —— 默认约 60 秒（实测 59 秒通过、60 秒必被掐断）；' +
+        'CodeBuddy 可以在 mcp.json 的该 server 项里用 "timeout" 字段抬高（本机已抬到 15 分钟）。' +
+        '拿不准就用默认值，超时返回 pending 后再调一次，用户操作不会丢失',
     ),
 });
 export type AwaitInput = z.infer<typeof AwaitInput>;
@@ -117,7 +119,10 @@ export type AwaitOutput = z.infer<typeof AwaitOutput>;
 export const SubmitDecompositionInput = z.object({
   sessionId: Id,
   parentId: Id.nullable().describe('拆解结果挂载到哪个节点下；传 null 表示补充顶层需求'),
-  items: z.array(DecompositionItem).min(1),
+  items: z
+    .array(DecompositionItem)
+    .default([])
+    .describe('要新增的节点。传空数组表示本轮不新增节点（只回应批注 / 补充说明时用）'),
   agentNote: z
     .string()
     .default('')

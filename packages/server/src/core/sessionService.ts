@@ -46,6 +46,11 @@ export interface SessionServiceDeps {
   webOrigin: string;
   /** 创建会话时是否顺带在浏览器打开画布 */
   autoOpen?: boolean;
+  /**
+   * 单次 clarify_await 允许阻塞的上限（毫秒）。
+   * 宿主的工具调用硬超时是外部约束，服务端必须自己封顶，见 awaitFeedback 里的说明。
+   */
+  maxBlockMs?: number;
   emit?: SessionEmitter;
 }
 
@@ -64,12 +69,14 @@ export class SessionService {
   private readonly webOrigin: string;
   private readonly autoOpen: boolean;
   private readonly emit: SessionEmitter;
+  private readonly maxBlockMs: number;
 
   constructor(deps: SessionServiceDeps) {
     this.store = deps.store;
     this.broker = deps.broker;
     this.webOrigin = deps.webOrigin.replace(/\/+$/, '');
     this.autoOpen = deps.autoOpen ?? false;
+    this.maxBlockMs = deps.maxBlockMs ?? 50_000;
     this.emit = deps.emit ?? ((): void => {});
   }
 
@@ -87,6 +94,9 @@ export class SessionService {
       projectContext: input.projectContext,
       status: 'awaiting-user',
       round: 0,
+      // 初始拆解是用户主动开启会话换来的，不需要额外授权；
+      // 之后的每一次新增都必须由用户点按钮重新授权
+      expandTargets: [],
       maxDepth: input.maxDepth,
       nodes: [],
       baselineNodes: [],
@@ -131,6 +141,7 @@ export class SessionService {
   async submitDecomposition(input: SubmitDecompositionInput): Promise<SubmitDecompositionOutput> {
     const session = await this.mustLoad(input.sessionId);
     this.assertActive(session);
+    this.assertExpandAuthorized(session, input);
 
     const parentDepth = input.parentId
       ? (session.nodes.find((n) => n.id === input.parentId)?.depth ?? -1)
@@ -188,6 +199,11 @@ export class SessionService {
 
   async awaitFeedback(sessionId: string, sinceRound: number, timeoutMs: number): Promise<AwaitOutput> {
     const startedAt = Date.now();
+    // 封顶：宿主对单次 MCP 工具调用有硬超时（本机实测 45 秒通过、65 秒被掐断），
+    // 一旦超了，整次调用直接失败 —— 主 Agent 连 round 游标都拿不到，只能从头再来。
+    // 契约里的 timeoutMs 上限是给「宽松宿主」留的余量，这里再按本机实际封一次顶：
+    // 宁可提前返回 pending 让它再调一次，也不能让请求被杀在半路。
+    const blockMs = Math.max(0, Math.min(timeoutMs, this.maxBlockMs));
     const initial = await this.mustLoad(sessionId);
 
     if (initial.status === 'completed') {
@@ -227,7 +243,7 @@ export class SessionService {
       };
     }
 
-    const feedback = await this.broker.waitFor(sessionId, sinceRound, timeoutMs);
+    const feedback = await this.broker.waitFor(sessionId, sinceRound, blockMs);
     const waitedMs = Date.now() - startedAt;
 
     if (!feedback) {
@@ -336,10 +352,11 @@ export class SessionService {
       action: session.lastAction ?? 'confirmed',
       nodes: session.nodes,
       diff,
-      // 自由输入与展开请求没有落盘，重算时只能留空；
-      // 但节点数据是完整的，主 Agent 据此就能继续推进
+      // 自由输入是纯文本、丢了不致命，重算时只能留空；
+      // 但展开请求必须恢复：它已随 expandTargets 落盘，且是服务端放行新增节点的唯一依据，
+      // 漏掉它会让主 Agent 以为自己没被授权，而服务端手里却攥着一份授权
       userFreeText: '',
-      expandRequests: [],
+      expandRequests: [...session.expandTargets],
       pendingAssumptions: session.nodes
         .filter((n) => n.kind === 'assumption' && n.status === 'draft')
         .map((n) => n.id),
@@ -538,6 +555,11 @@ export class SessionService {
     session.round += 1;
     session.lastAction = request.action;
     session.status = request.action === 'abort' ? 'aborted' : 'awaiting-agent';
+    // 授权整体覆盖而非累加：用户这一轮的意图只在这两个按钮之间的这段时间内有效。
+    // 用户没点任何推断按钮时这里就是空的，主 Agent 随即失去新增节点的权限。
+    session.expandTargets = [...new Set(request.expandRequests ?? [])].filter((id) =>
+      session.nodes.some((n) => n.id === id),
+    );
     session.updatedAt = now;
     await this.store.save(session);
 
@@ -590,6 +612,40 @@ export class SessionService {
     if (session.status === 'completed' || session.status === 'aborted') {
       throw new Error(`会话 ${session.id} 已结束（${session.status}），无法继续写入`);
     }
+  }
+
+  /**
+   * 新增节点的硬闸门：没有用户授权就直接拒绝，一个节点都不写。
+   *
+   * 背景：光靠提示词约束不住这件事。用户只是往「补充说明」里写了一句话、或点了
+   * 「确认本轮」，主 Agent 照样会把它当成拆解指令，自行长出一整批子节点 ——
+   * 而它的每一条推断都可能不是用户要的。所以授权必须由用户点击按钮产生、
+   * 由服务端校验，而不是靠 AI 自觉。
+   *
+   * 授权语义（与画布上的按钮一一对应）：
+   * - 「推断分支」「推断下一个分支」「继续拆解选中项」→ 授权展开该节点
+   * - 授权每次用户提交都整体覆盖，因此一次点击只授权一轮
+   * - `items` 为空表示「本轮不新增」，永远放行 —— 这也是回应批注的唯一合法姿势
+   */
+  private assertExpandAuthorized(session: Session, input: SubmitDecompositionInput): void {
+    if (input.items.length === 0) return;
+
+    const allowed = session.expandTargets;
+    if (input.parentId !== null && allowed.includes(input.parentId)) return;
+
+    const granted = allowed
+      .map((id) => session.nodes.find((n) => n.id === id)?.title ?? id)
+      .slice(0, 5);
+
+    throw new Error(
+      `本轮用户没有请求新增节点，${input.items.length} 条新增已被拒绝，未写入任何节点。` +
+        '新增节点必须先由用户在画布上点击「推断分支 / 推断下一个分支 / 继续拆解选中项」授权，' +
+        '用户点了「确认本轮」或只在补充说明里写了字，都不构成新增授权。' +
+        (granted.length > 0
+          ? `本轮已授权的展开目标：${granted.join('、')}；新增只能挂到这些节点下。`
+          : '本轮没有任何已授权的展开目标，因此新增一律不允许。') +
+        '若只是想回应批注或归类用户的补充说明，请改为传 items: []，把回应写进 replies。',
+    );
   }
 
   /** 把主 Agent 的拆解条目落成节点：分配 id、算层级、解析同批次依赖引用 */

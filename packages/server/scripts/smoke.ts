@@ -175,6 +175,69 @@ async function main(): Promise<void> {
   check('体检无 error 级问题', validate.ok, JSON.stringify(validate.issues.filter((i) => i.level === 'error')));
   check('无待裁决假设', validate.stats.draftAssumptions === 0, `剩下 ${validate.stats.draftAssumptions}`);
 
+  /* 7. 硬闸门：用户只点了「确认本轮」，AI 不得自行新增节点 */
+  const beforeGate = (await store.load(started.sessionId))!;
+  let gateError = '';
+  try {
+    await service.submitDecomposition({
+      sessionId: started.sessionId,
+      parentId: a1.id,
+      items: [
+        {
+          key: 'c1',
+          title: 'AI 自作主张新增的节点',
+          detail: '',
+          kind: 'functional',
+          acceptance: ['WHEN 用户没点按钮 THEN 这条不该存在'],
+          dependsOnKeys: [],
+          userNoteRef: '',
+        },
+      ],
+      agentNote: '',
+      replies: [],
+    });
+  } catch (error) {
+    gateError = error instanceof Error ? error.message : String(error);
+  }
+  const afterGate = (await store.load(started.sessionId))!;
+  check('未点按钮时 AI 新增被拒绝', gateError.includes('已被拒绝'), gateError.slice(0, 80));
+  check(
+    '被拒绝的新增一个节点都没落盘',
+    afterGate.nodes.length === beforeGate.nodes.length,
+    `${beforeGate.nodes.length} → ${afterGate.nodes.length}`,
+  );
+
+  /* 8. 只回应批注（items 传空）不受闸门影响 */
+  const replied = await service.submitDecomposition({
+    sessionId: started.sessionId,
+    parentId: a1.id,
+    items: [],
+    agentNote: '',
+    replies: [{ nodeId: a1.id, reply: '确认不再新增任何节点' }],
+  });
+  const afterReply = (await store.load(started.sessionId))!;
+  check('items 为空时不新增节点', replied.created.length === 0);
+  check(
+    '只回应的批注仍被写回节点',
+    Boolean(afterReply.nodes.find((n) => n.id === a1.id)?.detail.includes('确认不再新增任何节点')),
+  );
+
+  /* 9. await 必须被封顶：请求再久也不能撞上宿主的工具调用硬超时 */
+  const cappedService = new SessionService({
+    store,
+    broker: new FeedbackBroker(),
+    webOrigin: 'http://127.0.0.1:5173',
+    maxBlockMs: 1_200,
+  });
+  const capStartedAt = Date.now();
+  const capped = await cappedService.awaitFeedback(started.sessionId, afterReply.round, 300_000);
+  const capElapsed = Date.now() - capStartedAt;
+  check(
+    '请求 300s 也被封顶（提前返回 pending，而不是被宿主掐断）',
+    capped.status === 'pending' && capElapsed < 5_000,
+    `status=${capped.status} 实际阻塞 ${capElapsed}ms`,
+  );
+
   const finalized = await service.finalize({
     sessionId: started.sessionId,
     implementationPlan: '先扫描目录，再逐个读取尺寸，最后输出报告。',
@@ -187,7 +250,7 @@ async function main(): Promise<void> {
   const closed = await store.load(started.sessionId);
   check('会话已收口', closed?.status === 'completed');
 
-  /* 7. 历史会话可被找回 */
+  /* 9. 历史会话可被找回 */
   const list = await store.list();
   check('历史会话可列出', list.length === 1);
 

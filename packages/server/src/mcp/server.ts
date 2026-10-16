@@ -94,7 +94,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
           '返回 status="feedback" → 拿到了用户裁决，按 hint 里的建议行动（通常意味着你要回应批注或继续拆解）。\n' +
           '返回 status="pending" → 等待期间用户没有操作，**用返回的 round 作为 sinceRound 立刻再调一次**继续等。' +
           '重复调用是正常用法而非出错，用户的操作不会因超时丢失。\n' +
-          '注意：单次等待别超过约 25 秒 —— MCP 宿主通常有 60 秒的工具超时，设大了请求会被直接掐断。',
+          '注意：单次等待受 MCP 宿主的工具调用硬超时限制 —— 默认约 60 秒，' +
+          '宿主可以在 mcp.json 里给该 server 配 "timeout" 字段抬高（本次部署已抬到 15 分钟）。' +
+          '上限不明确时用 25 秒最保险，超时返回 pending 再调一次即可。',
         inputSchema: AwaitInput.shape,
       },
       async (args) => {
