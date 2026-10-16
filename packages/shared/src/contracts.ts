@@ -90,12 +90,11 @@ export const AwaitInput = z.object({
     .int()
     .min(1000)
     .max(600000)
-    .default(25_000)
+    .default(600_000)
     .describe(
-      '单次阻塞上限（毫秒）。注意：MCP 宿主对工具调用有硬超时，超了整次调用会被直接掐断，' +
-        '而这个上限由宿主的 MCP 配置决定 —— 默认约 60 秒（实测 59 秒通过、60 秒必被掐断）；' +
-        'CodeBuddy 可以在 mcp.json 的该 server 项里用 "timeout" 字段抬高（本机已抬到 15 分钟）。' +
-        '拿不准就用默认值，超时返回 pending 后再调一次，用户操作不会丢失',
+      '单次阻塞上限（毫秒），默认 10 分钟，通常无需传。宿主若对工具调用设了硬超时（不少客户端默认 60 秒），' +
+        '需要在宿主的 MCP 配置里一并放大，否则整次调用会被掐断；' +
+        '也可用服务端的 --max-block-ms 主动压小，让它在宿主掐断前自己返回 pending',
     ),
 });
 export type AwaitInput = z.infer<typeof AwaitInput>;

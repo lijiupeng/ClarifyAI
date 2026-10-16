@@ -19,12 +19,11 @@ export interface ServerConfig {
   /** MCP 等待用户的默认超时（毫秒） */
   defaultAwaitTimeoutMs: number;
   /**
-   * 单次工具调用允许阻塞的上限（毫秒）。
+   * 单次工具调用允许阻塞的上限（毫秒），默认与契约上限一致（10 分钟，等于不额外封顶）。
    *
-   * 宿主对 MCP 工具调用有硬超时，一旦超了，**整次调用直接失败**（本机实测：
-   * 45 秒通过、65 秒被掐断），主 Agent 连 round 游标都拿不到。所以这里封顶，
-   * 宁可提前返回 pending 让它再调一次，也不能让请求被杀。
-   * 换个更宽松的宿主可以用 --max-block-ms 调大。
+   * 它只在「宿主的工具调用超时比我们更小」时才有用：宿主超了会**直接掐断整次调用**，
+   * 主 Agent 连 round 游标都拿不到。这时用 --max-block-ms 压到宿主上限以内，
+   * 让服务端自己提前返回 pending 再调一次，而不是让请求被杀在半路。
    */
   maxBlockMs: number;
   autoOpenBrowser: boolean;
@@ -59,9 +58,10 @@ export function loadConfig(argv: readonly string[] = process.argv.slice(2)): Ser
   const mode = (readFlag(argv, 'mode') ?? process.env.CLARIFY_MODE ?? 'both') as RunMode;
   const port = Number(readFlag(argv, 'port') ?? process.env.CLARIFY_PORT ?? 4317);
   const timeout = Number(readFlag(argv, 'await-timeout') ?? process.env.CLARIFY_AWAIT_TIMEOUT ?? 120_000);
-  // 封顶值取 50 秒：会话内实测 55 秒还能安全返回，60/65 秒必被宿主掐断（硬上限 60 秒），
-  // 留 10 秒余量，保证「请求自己先返回」永远早于「宿主把连接砍掉」
-  const maxBlock = Number(readFlag(argv, 'max-block-ms') ?? process.env.CLARIFY_MAX_BLOCK_MS ?? 50_000);
+  // 默认不额外封顶（与契约上限一致，即 10 分钟）。
+  // 只有宿主的工具调用超时比这更小时，才需要用它压到宿主上限以内 ——
+  // 让服务端自己提前返回 pending，而不是被宿主把整次调用掐断。
+  const maxBlock = Number(readFlag(argv, 'max-block-ms') ?? process.env.CLARIFY_MAX_BLOCK_MS ?? 600_000);
 
   const dataDir =
     readFlag(argv, 'data-dir') ??
@@ -79,7 +79,7 @@ export function loadConfig(argv: readonly string[] = process.argv.slice(2)): Ser
     // 实测：MCP 宿主约 60 秒就会掐断工具调用，120 秒必然失败，
     // 因此默认值压到 25 秒，靠 round 游标 + 反复调用来覆盖长等待
     defaultAwaitTimeoutMs: Number.isFinite(timeout) ? timeout : 25_000,
-    maxBlockMs: Number.isFinite(maxBlock) && maxBlock >= 1_000 ? maxBlock : 50_000,
+    maxBlockMs: Number.isFinite(maxBlock) && maxBlock >= 1_000 ? maxBlock : 600_000,
     autoOpenBrowser: readFlag(argv, 'open') !== 'false',
   };
 }

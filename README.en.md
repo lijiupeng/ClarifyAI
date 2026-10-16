@@ -66,9 +66,9 @@ or it is inherently vague.**
 
 ### 3. The round cursor — none of your actions are ever lost
 
-MCP hosts time out tool calls (**measured: hosts cut off somewhere between 50 and 120 seconds**),
-and restarting the server wipes in-memory state. ClarifyAI defends with a round cursor plus
-on-disk data:
+MCP hosts impose a **hard timeout** on tool calls (defaults vary by client — raise it as shown in
+"Connect your AI assistant" below), and restarting the server wipes in-memory state.
+ClarifyAI defends with a round cursor plus on-disk data:
 
 - `clarify_await` returns `pending` on timeout, and the next call **replays** everything that
   happened meanwhile
@@ -136,7 +136,8 @@ running, and both share the same session data.
   "mcpServers": {
     "clarifyai": {
       "type": "http",
-      "url": "http://127.0.0.1:4317/mcp"
+      "url": "http://127.0.0.1:4317/mcp",
+      "timeout": 900000
     }
   }
 }
@@ -149,11 +150,19 @@ running, and both share the same session data.
   "mcpServers": {
     "clarifyai": {
       "command": "node",
-      "args": ["/absolute/path/to/ClarifyAI/packages/server/dist/index.js", "--mode=both"]
+      "args": ["/absolute/path/to/ClarifyAI/packages/server/dist/index.js", "--mode=both"],
+      "timeout": 900000
     }
   }
 }
 ```
+
+> `timeout` is the **host's hard timeout for a single tool call**. `clarify_await` is blocking and waits
+> up to 10 minutes per call by default, while many clients allow only 60 seconds per tool call — hence
+> the explicit bump to 15 minutes (field names and units vary across clients; just pick a large value).
+> Conversely, if the host's timeout is smaller than the server-side ceiling, lower it via
+> `clarify_await`'s `timeoutMs` or the server's `--max-block-ms`. Getting cut off loses nothing:
+> `clarify_await` returns `pending` and the round cursor replays everything on the next call.
 
 ---
 

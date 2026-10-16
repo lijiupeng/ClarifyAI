@@ -76,7 +76,7 @@ export class SessionService {
     this.broker = deps.broker;
     this.webOrigin = deps.webOrigin.replace(/\/+$/, '');
     this.autoOpen = deps.autoOpen ?? false;
-    this.maxBlockMs = deps.maxBlockMs ?? 50_000;
+    this.maxBlockMs = deps.maxBlockMs ?? 600_000;
     this.emit = deps.emit ?? ((): void => {});
   }
 
@@ -199,10 +199,9 @@ export class SessionService {
 
   async awaitFeedback(sessionId: string, sinceRound: number, timeoutMs: number): Promise<AwaitOutput> {
     const startedAt = Date.now();
-    // 封顶：宿主对单次 MCP 工具调用有硬超时（本机实测 45 秒通过、65 秒被掐断），
-    // 一旦超了，整次调用直接失败 —— 主 Agent 连 round 游标都拿不到，只能从头再来。
-    // 契约里的 timeoutMs 上限是给「宽松宿主」留的余量，这里再按本机实际封一次顶：
-    // 宁可提前返回 pending 让它再调一次，也不能让请求被杀在半路。
+    // 按配置封顶：默认与契约上限一致（不额外收缩）。
+    // 只有宿主自己的工具调用超时比这更小时，才需要用 --max-block-ms 压到宿主上限以内 ——
+    // 否则宿主的硬超时会把整次调用掐掉，主 Agent 连 round 游标都拿不到。
     const blockMs = Math.max(0, Math.min(timeoutMs, this.maxBlockMs));
     const initial = await this.mustLoad(sessionId);
 

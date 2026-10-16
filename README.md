@@ -62,7 +62,8 @@ AI 的每一条推断都必须显式落成 `assumption` 类型的条目，在画
 
 ### 3. round 游标 —— 你的每一次操作都不会丢
 
-MCP 宿主对工具调用有超时（**实测宿主在 50~120 秒之间掐断**），服务重启还会清空内存状态。
+MCP 宿主对工具调用有**硬超时**（不同客户端默认值不同，接入时按「接入你的 AI 助手」一节把它放大即可），
+服务重启还会清空内存状态。
 ClarifyAI 用「轮次游标 + 落盘数据」兜底：
 
 - `clarify_await` 超时返回 `pending`，下次调用能**补回**期间发生的所有操作
@@ -124,7 +125,8 @@ node packages/server/dist/index.js --mode=http
   "mcpServers": {
     "clarifyai": {
       "type": "http",
-      "url": "http://127.0.0.1:4317/mcp"
+      "url": "http://127.0.0.1:4317/mcp",
+      "timeout": 900000
     }
   }
 }
@@ -137,11 +139,17 @@ node packages/server/dist/index.js --mode=http
   "mcpServers": {
     "clarifyai": {
       "command": "node",
-      "args": ["/absolute/path/to/ClarifyAI/packages/server/dist/index.js", "--mode=both"]
+      "args": ["/absolute/path/to/ClarifyAI/packages/server/dist/index.js", "--mode=both"],
+      "timeout": 900000
     }
   }
 }
 ```
+
+> `timeout` 是**宿主对单次工具调用的硬超时**。`clarify_await` 是阻塞式的、默认单次最长等 10 分钟，
+> 而不少客户端对工具调用只给 60 秒，所以这里显式放大到 15 分钟（各家字段名与单位不一，给个足够大的值即可）。
+> 反过来，宿主的超时若比服务端更小，就用 `clarify_await` 的 `timeoutMs` 或服务端 `--max-block-ms` 压到上限以内。
+> 就算被掐断也不丢操作：`clarify_await` 超时返回 `pending`，凭 round 游标再调一次即可。
 
 ---
 
