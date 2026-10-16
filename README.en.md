@@ -101,13 +101,13 @@ No native plugin is required.
 Download `clarifyai-x.y.z.tgz` from [Releases](https://github.com/lijiupeng/ClarifyAI/releases), then:
 
 ```bash
-npm install -g ./clarifyai-0.1.4.tgz   # global install
+npm install -g ./clarifyai-0.1.5.tgz   # global install
 clarifyai --mode=http                  # start
 ```
 
 Open **http://127.0.0.1:4317**. The tarball **already ships the frontend build** — no separate build step or Vite server needed.
 
-> Prefer not to install globally: `npm install ./clarifyai-0.1.4.tgz && npx clarifyai --mode=http`
+> Prefer not to install globally: `npm install ./clarifyai-0.1.5.tgz && npx clarifyai --mode=http`
 
 ### Run from source
 
