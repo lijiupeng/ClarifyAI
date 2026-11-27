@@ -11,10 +11,13 @@ import type {
   FinalizeOutput,
   GetSessionOutput,
   NodeOrigin,
+  NodeSuggestion,
   RequirementNode,
   RequirementSpec,
   StartInput,
   StartOutput,
+  SuggestInput,
+  SuggestOutput,
   SubmitDecompositionInput,
   SubmitDecompositionOutput,
   ValidateOutput,
@@ -35,6 +38,7 @@ export interface CanvasFeedbackRequest {
   action: 'confirmed' | 'need-more' | 'abort';
   userFreeText?: string;
   expandRequests?: string[];
+  suggestRequests?: string[];
 }
 
 export type SessionEmitter = (sessionId: string, event: string, payload: unknown) => void;
@@ -97,25 +101,34 @@ export class SessionService {
       // 初始拆解是用户主动开启会话换来的，不需要额外授权；
       // 之后的每一次新增都必须由用户点按钮重新授权
       expandTargets: [],
+      suggestTargets: [],
       maxDepth: input.maxDepth,
+      rootId: null,
       nodes: [],
+      suggestions: [],
       baselineNodes: [],
       createdAt: now,
       updatedAt: now,
     };
 
-    const created = this.materialize(session, null, input.decomposition, 'ai');
-    session.nodes = created;
-    session.baselineNodes = structuredClone(created);
+    // 画布只有一个根：它就是这份需求书的标题。
+    // 所有拆解条目都是根的子孙，不存在并列的「顶层需求」。
+    const root = this.createRoot(session, input.rootTitle);
+    // 先把根放进 nodes：materialize 要靠它解析父节点与兄弟顺序
+    session.rootId = root.id;
+    session.nodes = [root];
+    const created = this.materialize(session, root.id, input.decomposition, 'ai');
+    session.nodes = [root, ...created];
+    session.baselineNodes = structuredClone(session.nodes);
 
     await this.store.save(session);
     this.emit(sessionId, ServerEvent.SNAPSHOT, { session });
 
-    const warnings = this.validateBatch(input.decomposition, 0, session.maxDepth);
+    const warnings = this.validateBatch(input.decomposition, 1, session.maxDepth);
     const uiUrl = this.uiUrl(sessionId);
 
     const notes = [
-      `已创建会话 ${sessionId}：${created.length} 条初稿已渲染到画布。`,
+      `已创建会话 ${sessionId}：根节点「${root.title}」下 ${created.length} 条初稿已渲染到画布。`,
       `请引导用户在 ${uiUrl} 上逐条裁决，然后调用 clarify_await 阻塞等待结果。`,
       ...warnings,
     ];
@@ -141,14 +154,16 @@ export class SessionService {
   async submitDecomposition(input: SubmitDecompositionInput): Promise<SubmitDecompositionOutput> {
     const session = await this.mustLoad(input.sessionId);
     this.assertActive(session);
-    this.assertExpandAuthorized(session, input);
 
-    const parentDepth = input.parentId
-      ? (session.nodes.find((n) => n.id === input.parentId)?.depth ?? -1)
-      : -1;
-    const nextDepth = parentDepth + 1;
+    // 单根语义：parentId=null 等同于挂到根节点下，不存在「补充顶层需求」
+    const parentId = input.parentId ?? session.rootId;
+    if (!parentId) throw new Error('会话缺少根节点，无法挂载新增条目');
+    const parent = session.nodes.find((n) => n.id === parentId);
+    if (!parent) throw new Error(`父节点不存在: ${parentId}`);
 
-    const created = this.materialize(session, input.parentId, input.items, 'ai');
+    this.assertExpandAuthorized(session, parentId, input.items.length);
+
+    const created = this.materialize(session, parentId, input.items, 'ai');
 
     // 用户的每一条批注都必须得到回应，挂到对应节点上供用户核对
     for (const reply of input.replies) {
@@ -179,6 +194,8 @@ export class SessionService {
       status: session.status,
       upserted: [...created, ...repliedNodes],
       removedIds: [],
+      suggestions: [],
+      removedSuggestionIds: [],
       agentNote: input.agentNote,
     });
 
@@ -193,8 +210,246 @@ export class SessionService {
       sessionId: session.id,
       round: session.round,
       created,
-      warnings: this.validateBatch(input.items, nextDepth, session.maxDepth),
+      warnings: this.validateBatch(input.items, parent.depth + 1, session.maxDepth),
     };
+  }
+
+  /**
+   * 提交补全 / 优化建议。
+   *
+   * 建议不写 nodes —— 它只是画布上的一层灰字，用户点了「采纳」才落到需求树。
+   * 一次最多 3 条由契约层卡死：整棵树重写一遍对用户没有意义，他要的是逐条判断。
+   */
+  async suggest(input: SuggestInput): Promise<SuggestOutput> {
+    const session = await this.mustLoad(input.sessionId);
+    this.assertActive(session);
+
+    // 条数不在代码里硬卡：给多少由 AI 按内容判断，规则写在 skill 里。
+    // 契约层仍有一个上限（30），只用来挡明显失控的批量。
+    const now = Date.now();
+    const created: NodeSuggestion[] = [];
+    const warnings: string[] = [];
+
+    for (const item of input.items) {
+      const target = session.nodes.find((n) => n.id === item.nodeId);
+      if (!target) throw new Error(`节点不存在: ${item.nodeId}`);
+
+      const duplicate = session.suggestions.some(
+        (s) => s.nodeId === item.nodeId && s.action === item.action && s.status === 'pending',
+      );
+      if (duplicate) {
+        warnings.push(`「${target.title}」已有一条待处理的同类建议，本次跳过`);
+        continue;
+      }
+
+      const title = item.title.trim();
+      if (item.action === 'expand' && !title) {
+        throw new Error(`expand 建议必须给出新子需求的标题（目标节点「${target.title}」）`);
+      }
+      if (item.action === 'refine' && !title && !item.detail.trim() && item.acceptance.length === 0) {
+        warnings.push(`「${target.title}」的 refine 建议没有任何内容，已跳过`);
+        continue;
+      }
+      if (item.action === 'remove' && target.id === session.rootId) {
+        warnings.push('根节点是需求书标题，不能删除，已跳过');
+        continue;
+      }
+      if (item.action === 'move') {
+        const nextParentId = item.targetParentId ?? session.rootId;
+        if (!nextParentId) throw new Error('没有可用的父节点');
+        if (!session.nodes.some((n) => n.id === nextParentId)) {
+          throw new Error(`move 建议的目标父节点不存在: ${nextParentId}`);
+        }
+        if (nextParentId === target.id || this.isDescendant(session, nextParentId, target.id)) {
+          throw new Error(`不能把「${target.title}」移到它自己的子树下`);
+        }
+      }
+
+      created.push({
+        id: nanoid(12),
+        nodeId: item.nodeId,
+        action: item.action,
+        title,
+        detail: item.detail,
+        acceptance: [...item.acceptance],
+        targetParentId: item.targetParentId ?? null,
+        position: item.position ?? null,
+        note: item.note.trim(),
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    if (created.length > 0) {
+      session.suggestions.push(...created);
+      session.updatedAt = now;
+      await this.store.save(session);
+
+      this.emit(session.id, ServerEvent.PATCHED, {
+        sessionId: session.id,
+        round: session.round,
+        status: session.status,
+        upserted: [],
+        removedIds: [],
+        suggestions: created,
+        removedSuggestionIds: [],
+        agentNote: '',
+      });
+    }
+
+    return { sessionId: session.id, round: session.round, created, warnings };
+  }
+
+  /**
+   * 用户在画布上裁决一条建议。
+   * 采纳才写入需求树 —— 忽略的建议只留一个 ignored 状态，永远不落地。
+   */
+  async resolveSuggestion(
+    sessionId: string,
+    suggestionId: string,
+    accept: boolean,
+  ): Promise<{
+    session: Session;
+    suggestion: NodeSuggestion;
+    upserted: RequirementNode[];
+    removedIds: string[];
+  }> {
+    const session = await this.mustLoad(sessionId);
+    this.assertActive(session);
+
+    const suggestion = session.suggestions.find((s) => s.id === suggestionId);
+    if (!suggestion) throw new Error(`建议不存在: ${suggestionId}`);
+    if (suggestion.status !== 'pending') throw new Error('这条建议已经处理过了');
+
+    const target = session.nodes.find((n) => n.id === suggestion.nodeId);
+    if (!target) throw new Error(`建议指向的节点不存在: ${suggestion.nodeId}`);
+
+    const now = Date.now();
+    const upserted: RequirementNode[] = [];
+    const removedIds: string[] = [];
+    const removedSuggestionIds: string[] = [suggestion.id];
+
+    if (accept) {
+      switch (suggestion.action) {
+        case 'refine': {
+          if (suggestion.title) target.title = suggestion.title;
+          if (suggestion.detail.trim()) target.detail = suggestion.detail;
+          if (suggestion.acceptance.length > 0) target.acceptance = [...suggestion.acceptance];
+          target.updatedAt = now;
+          upserted.push(target);
+          break;
+        }
+
+        case 'expand': {
+          const created = this.materialize(
+            session,
+            target.id,
+            [
+              {
+                key: 'suggestion',
+                title: suggestion.title,
+                detail: suggestion.detail,
+                kind: 'functional',
+                acceptance: [...suggestion.acceptance],
+                dependsOnKeys: [],
+                userNoteRef: '',
+              },
+            ],
+            'ai',
+          );
+          session.nodes.push(...created);
+          upserted.push(...created);
+          break;
+        }
+
+        case 'remove': {
+          if (target.id === session.rootId) {
+            throw new Error('根节点是需求书标题，不能删除');
+          }
+
+          const removing = new Set<string>([target.id]);
+          let grew = true;
+          while (grew) {
+            grew = false;
+            for (const node of session.nodes) {
+              if (node.parentId && removing.has(node.parentId) && !removing.has(node.id)) {
+                removing.add(node.id);
+                grew = true;
+              }
+            }
+          }
+
+          session.nodes = session.nodes.filter((n) => !removing.has(n.id));
+          for (const node of session.nodes) {
+            node.dependsOn = node.dependsOn.filter((id) => !removing.has(id));
+          }
+
+          // 挂在这些节点上的其它待处理建议一起作废，否则会指向不存在的节点
+          for (const other of session.suggestions) {
+            if (other.status !== 'pending' || other.id === suggestion.id) continue;
+            if (!removing.has(other.nodeId)) continue;
+            other.status = 'ignored';
+            other.updatedAt = now;
+            removedSuggestionIds.push(other.id);
+          }
+
+          removedIds.push(...removing);
+          break;
+        }
+
+        case 'move': {
+          const nextParentId = suggestion.targetParentId ?? session.rootId;
+          if (!nextParentId) throw new Error('没有可用的父节点');
+          if (nextParentId === target.id || this.isDescendant(session, nextParentId, target.id)) {
+            throw new Error('不能把节点移到它自己的子树下');
+          }
+
+          const parent = session.nodes.find((n) => n.id === nextParentId);
+          if (!parent) throw new Error(`目标父节点不存在: ${nextParentId}`);
+
+          target.parentId = parent.id;
+
+          // 重排新父节点下的全部兄弟，顺序号保持连续
+          const siblings = session.nodes
+            .filter((n) => n.parentId === parent.id && n.id !== target.id)
+            .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+          const position = Math.min(suggestion.position ?? siblings.length, siblings.length);
+          siblings.splice(position, 0, target);
+          siblings.forEach((node, index) => {
+            node.order = index;
+          });
+
+          this.recomputeDepths(session);
+
+          for (const node of session.nodes) {
+            if (node.id === target.id || this.isDescendant(session, node.id, target.id)) {
+              node.updatedAt = now;
+              upserted.push(node);
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    suggestion.status = accept ? 'accepted' : 'ignored';
+    suggestion.updatedAt = now;
+    session.updatedAt = now;
+    await this.store.save(session);
+
+    this.emit(session.id, ServerEvent.PATCHED, {
+      sessionId: session.id,
+      round: session.round,
+      status: session.status,
+      upserted,
+      removedIds,
+      suggestions: [],
+      removedSuggestionIds,
+      agentNote: '',
+    });
+
+    return { session, suggestion, upserted, removedIds };
   }
 
   async awaitFeedback(sessionId: string, sinceRound: number, timeoutMs: number): Promise<AwaitOutput> {
@@ -205,16 +460,6 @@ export class SessionService {
     const blockMs = Math.max(0, Math.min(timeoutMs, this.maxBlockMs));
     const initial = await this.mustLoad(sessionId);
 
-    if (initial.status === 'completed') {
-      return {
-        status: 'completed',
-        sessionId,
-        round: initial.round,
-        waitedMs: 0,
-        feedback: null,
-        hint: '会话已产出规格，无需继续等待。可直接使用 clarify_finalize 的返回值。',
-      };
-    }
     if (initial.status === 'aborted') {
       return {
         status: 'aborted',
@@ -248,9 +493,6 @@ export class SessionService {
     if (!feedback) {
       // 等待期间可能被 finalize / abort 关掉
       const latest = await this.store.load(sessionId);
-      if (latest && latest.status === 'completed') {
-        return { status: 'completed', sessionId, round: latest.round, waitedMs, feedback: null, hint: '会话已产出规格。' };
-      }
       if (latest && latest.status === 'aborted') {
         return { status: 'aborted', sessionId, round: latest.round, waitedMs, feedback: null, hint: '会话已被用户终止。' };
       }
@@ -349,6 +591,7 @@ export class SessionService {
       sessionId: session.id,
       round: session.round,
       action: session.lastAction ?? 'confirmed',
+      rootId: session.rootId,
       nodes: session.nodes,
       diff,
       // 自由输入是纯文本、丢了不致命，重算时只能留空；
@@ -356,8 +599,9 @@ export class SessionService {
       // 漏掉它会让主 Agent 以为自己没被授权，而服务端手里却攥着一份授权
       userFreeText: '',
       expandRequests: [...session.expandTargets],
+      suggestRequests: [...session.suggestTargets],
       pendingAssumptions: session.nodes
-        .filter((n) => n.kind === 'assumption' && n.status === 'draft')
+        .filter((n) => n.kind === 'assumption')
         .map((n) => n.id),
       aiDraftCorrectionRate: aiIds.size > 0 ? touched.size / aiIds.size : 0,
     };
@@ -371,40 +615,31 @@ export class SessionService {
       round: session.round,
       projectContext: session.projectContext,
       rawRequirement: session.rawRequirement,
+      rootId: session.rootId,
       nodes: session.nodes,
-      pendingAssumptions: session.nodes.filter((n) => n.kind === 'assumption' && n.status === 'draft'),
+      suggestions: session.suggestions,
+      pendingAssumptions: session.nodes.filter((n) => n.kind === 'assumption'),
     };
   }
 
   async finalize(input: FinalizeInput): Promise<FinalizeOutput> {
     const session = await this.mustLoad(input.sessionId);
 
-    const confirmed = session.nodes.filter((n) => n.status === 'confirmed' && n.kind !== 'out-of-scope');
+    // 没有「待确认」这一档：画布上的条目都是正式的，只有假设需要先被裁决
+    const confirmed = session.nodes.filter((n) => n.kind !== 'out-of-scope');
     const markdown = renderSpecMarkdown(session, confirmed, input.implementationPlan);
 
     const warnings: string[] = [];
 
-    // 待确认的条目会被排除在规格之外，必须显式报出来 ——
-    // 否则用户以为「都确认完了」，规格看上去完整无缺，实际却丢了他还没裁决的关键条目。
-    // （实测踩过：两条最重要的需求就这么静默消失了）
-    const undecided = session.nodes.filter(
-      (n) => n.status === 'draft' && n.kind !== 'out-of-scope' && n.kind !== 'assumption',
-    );
-    if (undecided.length > 0) {
-      warnings.push(
-        `有 ${undecided.length} 条处于「待确认」状态、未纳入规格：「${undecided
-          .slice(0, 3)
-          .map((n) => n.title)
-          .join('」「')}」—— 若它们仍然需要，请回到画布逐条确认后再收口`,
-      );
-    }
-
-    const pending = session.nodes.filter((n) => n.kind === 'assumption' && n.status === 'draft');
+    const pending = session.nodes.filter((n) => n.kind === 'assumption');
     if (pending.length > 0) {
       warnings.push(`仍有 ${pending.length} 条 AI 假设未被用户裁决，规格中可能包含未经确认的推断`);
     }
 
-    const missing = confirmed.filter((n) => n.acceptance.length === 0 && n.kind === 'functional');
+    // 根节点是标题，不需要验收标准
+    const missing = confirmed.filter(
+      (n) => n.id !== session.rootId && n.acceptance.length === 0 && n.kind === 'functional',
+    );
     if (missing.length > 0) {
       warnings.push(`${missing.length} 条已确认的功能需求没有验收标准，后续无法判定是否达成`);
     }
@@ -419,15 +654,16 @@ export class SessionService {
       generatedAt: Date.now(),
     };
 
-    session.status = 'completed';
+    // 不再进终态：规格只是「当前快照」，画布随时可以继续改。
+    // 用户的心智是「这份需求书一直在」，不是「提交后就封板」。
     session.updatedAt = Date.now();
     await this.store.save(session);
 
-    this.broker.dispose(session.id);
-    this.emit(session.id, ServerEvent.CLOSED, {
+    this.emit(session.id, ServerEvent.AGENT_BUSY, {
       sessionId: session.id,
-      status: 'completed',
-      message: '需求规格已生成',
+      busy: false,
+      status: session.status,
+      message: '规格快照已生成，画布仍可继续编辑',
     });
 
     return { sessionId: session.id, spec, warnings };
@@ -454,10 +690,10 @@ export class SessionService {
     const issues: ValidateOutput['issues'] = [];
 
     for (const node of session.nodes) {
-      if (node.kind === 'assumption' && node.status === 'draft') {
+      if (node.kind === 'assumption') {
         issues.push({ level: 'warning', nodeId: node.id, message: `AI 假设未经裁决：「${node.title}」` });
       }
-      if (node.kind === 'functional' && node.status === 'confirmed' && node.acceptance.length === 0) {
+      if (node.id !== session.rootId && node.kind === 'functional' && node.acceptance.length === 0) {
         issues.push({ level: 'warning', nodeId: node.id, message: `缺少验收标准：「${node.title}」` });
       }
       if (node.dependsOn.some((id) => !session.nodes.some((n) => n.id === id))) {
@@ -471,10 +707,11 @@ export class SessionService {
 
     const stats: ValidateOutput['stats'] = {
       total: session.nodes.length,
-      confirmed: session.nodes.filter((n) => n.status === 'confirmed').length,
-      draftAssumptions: session.nodes.filter((n) => n.kind === 'assumption' && n.status === 'draft').length,
+      // 没有「待确认」档位了：正式条目 = 除明确不做之外的节点
+      confirmed: session.nodes.filter((n) => n.kind !== 'out-of-scope').length,
+      draftAssumptions: session.nodes.filter((n) => n.kind === 'assumption').length,
       missingAcceptance: session.nodes.filter(
-        (n) => n.kind === 'functional' && n.acceptance.length === 0,
+        (n) => n.id !== session.rootId && n.kind === 'functional' && n.acceptance.length === 0,
       ).length,
       aiDraftCorrectionRate: baselineAiIds.size > 0 ? touched / baselineAiIds.size : 0,
     };
@@ -491,6 +728,15 @@ export class SessionService {
     const session = await this.mustLoad(sessionId);
     this.assertActive(session);
     const now = Date.now();
+
+    if (session.rootId && patch.removedIds.includes(session.rootId)) {
+      throw new Error('根节点是这份需求书的标题，不能删除；可以改标题或删掉它下面的分支');
+    }
+    for (const incoming of patch.upserted) {
+      if (incoming.parentId === null && incoming.id !== session.rootId) {
+        throw new Error('画布只允许一个根节点；新增需求请挂到根节点或已有节点下');
+      }
+    }
 
     if (patch.removedIds.length > 0) {
       const removing = new Set(patch.removedIds);
@@ -530,6 +776,8 @@ export class SessionService {
       status: session.status,
       upserted: patch.upserted,
       removedIds: patch.removedIds,
+      suggestions: [],
+      removedSuggestionIds: [],
       agentNote: '',
     });
 
@@ -559,6 +807,9 @@ export class SessionService {
     session.expandTargets = [...new Set(request.expandRequests ?? [])].filter((id) =>
       session.nodes.some((n) => n.id === id),
     );
+    session.suggestTargets = [...new Set(request.suggestRequests ?? [])].filter((id) =>
+      session.nodes.some((n) => n.id === id),
+    );
     session.updatedAt = now;
     await this.store.save(session);
 
@@ -566,12 +817,14 @@ export class SessionService {
       sessionId,
       round: session.round,
       action: request.action,
+      rootId: session.rootId,
       nodes: session.nodes,
       diff,
       userFreeText: request.userFreeText ?? '',
       expandRequests: request.expandRequests ?? [],
+      suggestRequests: request.suggestRequests ?? [],
       pendingAssumptions: session.nodes
-        .filter((n) => n.kind === 'assumption' && n.status === 'draft')
+        .filter((n) => n.kind === 'assumption')
         .map((n) => n.id),
       aiDraftCorrectionRate: aiIdSet.size > 0 ? touchedAi.size / aiIdSet.size : 0,
     };
@@ -604,12 +857,15 @@ export class SessionService {
   private async mustLoad(sessionId: string): Promise<Session> {
     const session = await this.store.load(sessionId);
     if (!session) throw new Error(`会话不存在: ${sessionId}`);
+    // 单根是画布的不变量：旧数据缺 rootId 时在这里补齐，后续逻辑不必再判空
+    if (this.ensureSingleRoot(session)) await this.store.save(session);
     return session;
   }
 
+  /** 只有用户主动终止才算结束；生成过规格的会话仍然可以继续编辑 */
   private assertActive(session: Session): void {
-    if (session.status === 'completed' || session.status === 'aborted') {
-      throw new Error(`会话 ${session.id} 已结束（${session.status}），无法继续写入`);
+    if (session.status === 'aborted') {
+      throw new Error(`会话 ${session.id} 已被终止，无法继续写入`);
     }
   }
 
@@ -626,18 +882,17 @@ export class SessionService {
    * - 授权每次用户提交都整体覆盖，因此一次点击只授权一轮
    * - `items` 为空表示「本轮不新增」，永远放行 —— 这也是回应批注的唯一合法姿势
    */
-  private assertExpandAuthorized(session: Session, input: SubmitDecompositionInput): void {
-    if (input.items.length === 0) return;
+  private assertExpandAuthorized(session: Session, parentId: string, itemCount: number): void {
+    if (itemCount === 0) return;
 
-    const allowed = session.expandTargets;
-    if (input.parentId !== null && allowed.includes(input.parentId)) return;
+    if (session.expandTargets.includes(parentId)) return;
 
-    const granted = allowed
+    const granted = session.expandTargets
       .map((id) => session.nodes.find((n) => n.id === id)?.title ?? id)
       .slice(0, 5);
 
     throw new Error(
-      `本轮用户没有请求新增节点，${input.items.length} 条新增已被拒绝，未写入任何节点。` +
+      `本轮用户没有请求新增节点，${itemCount} 条新增已被拒绝，未写入任何节点。` +
         '新增节点必须先由用户在画布上点击「推断分支 / 推断下一个分支 / 继续拆解选中项」授权，' +
         '用户点了「确认本轮」或只在补充说明里写了字，都不构成新增授权。' +
         (granted.length > 0
@@ -645,6 +900,83 @@ export class SessionService {
           : '本轮没有任何已授权的展开目标，因此新增一律不允许。') +
         '若只是想回应批注或归类用户的补充说明，请改为传 items: []，把回应写进 replies。',
     );
+  }
+
+  /** 画布唯一的根 —— 它是需求书的标题，不是一条待裁决的需求 */
+  private createRoot(session: Session, title: string | undefined): RequirementNode {
+    const now = Date.now();
+    const fallback = session.rawRequirement.trim().slice(0, 24) || '未命名需求';
+
+    return {
+      id: nanoid(12),
+      sessionId: session.id,
+      parentId: null,
+      // 直接调用服务（脚本、内部测试）时不会经过 zod，default 不生效
+      title: title?.trim() || fallback,
+      detail: '',
+      kind: 'functional',
+      acceptance: [],
+      status: 'confirmed',
+      origin: 'user',
+      userNote: '',
+      dependsOn: [],
+      depth: 0,
+      order: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  /**
+   * 旧会话可能没有 rootId、甚至有多棵顶层树。
+   * 这里把它们收敛成单根：取最早的顶层节点当根，其余顶层节点挂到它下面并重算层级。
+   */
+  private ensureSingleRoot(session: Session): boolean {
+    if (session.rootId && session.nodes.some((n) => n.id === session.rootId)) return false;
+
+    const tops = session.nodes
+      .filter((n) => n.parentId === null)
+      .sort((a, b) => a.createdAt - b.createdAt);
+    if (tops.length === 0) return false;
+
+    const [root, ...extraTops] = tops;
+    session.rootId = root!.id;
+    if (extraTops.length === 0) return true;
+
+    for (const node of extraTops) node.parentId = root!.id;
+    this.recomputeDepths(session);
+    return true;
+  }
+
+  private recomputeDepths(session: Session): void {
+    const childrenOf = new Map<string, RequirementNode[]>();
+    for (const node of session.nodes) {
+      if (!node.parentId) continue;
+      const list = childrenOf.get(node.parentId) ?? [];
+      list.push(node);
+      childrenOf.set(node.parentId, list);
+    }
+
+    const walk = (node: RequirementNode, depth: number): void => {
+      node.depth = depth;
+      for (const child of childrenOf.get(node.id) ?? []) walk(child, depth + 1);
+    };
+
+    const root = session.nodes.find((n) => n.id === session.rootId);
+    if (root) walk(root, 0);
+  }
+
+  /** nodeId 是否落在 ancestorId 的子树里（阻止把节点移到自己下面） */
+  private isDescendant(session: Session, nodeId: string, ancestorId: string): boolean {
+    let cursor = session.nodes.find((n) => n.id === nodeId);
+
+    while (cursor?.parentId) {
+      const parentId: string = cursor.parentId;
+      if (parentId === ancestorId) return true;
+      cursor = session.nodes.find((n) => n.id === parentId);
+    }
+
+    return false;
   }
 
   /** 把主 Agent 的拆解条目落成节点：分配 id、算层级、解析同批次依赖引用 */
@@ -673,7 +1005,9 @@ export class SessionService {
         detail: item.detail,
         kind: item.kind,
         acceptance: [...item.acceptance],
-        status: 'draft',
+        // 落到画布上的节点就是正式的：没有「待确认」这一档。
+        // AI 的推断在落地前先以建议形式存在，用户采纳才算数。
+        status: 'confirmed',
         origin,
         userNote: '',
         dependsOn: [],
@@ -769,8 +1103,27 @@ export class SessionService {
       );
     }
 
+    if (feedback.suggestRequests.length > 0) {
+      const targets = feedback.suggestRequests
+        .map((id) => feedback.nodes.find((n) => n.id === id)?.title ?? id)
+        .slice(0, 5);
+      const wholeTree = Boolean(feedback.rootId && feedback.suggestRequests.includes(feedback.rootId));
+
+      parts.push(
+        wholeTree
+          ? '用户要求优化**整棵树**：可以调顺序（move）、删冗余（remove）、补缺口（expand）、改措辞（refine），' +
+            '但整体意思不能变 —— 不要新增用户没提过的功能，也不要把已确认的条目删成另一个需求。' +
+            '最多 10 条，只挑最值得改的'
+          : `用户要求优化 ${feedback.suggestRequests.length} 个节点（${targets.join('、')}），` +
+            '请用 clarify_suggest 给出建议，最多 3 条，让用户逐条决定要不要',
+      );
+    }
+
     if (feedback.action === 'confirmed') {
-      parts.push('用户已确认本轮，可继续下一层拆解，或调用 clarify_finalize 收口');
+      parts.push(
+        '用户已提交本轮，可继续下一层拆解，或调用 clarify_finalize 取一份规格快照（不会结束会话）；' +
+          '若发现某些条目写得含糊，也可以用 clarify_suggest 给最多 3 条优化建议',
+      );
     }
 
     return parts.length > 0 ? parts.join('；') + '。' : '用户已确认本轮，请继续。';

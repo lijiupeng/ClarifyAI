@@ -36,7 +36,8 @@
     "mindmap"
   ],
   "scripts": {
-    "dev": "tsx watch src/index.ts --mode=both",
+    "dev": "tsx src/index.ts --mode=http --dev-ui",
+    "dev:watch": "tsx watch src/index.ts --mode=http --dev-ui",
     "start": "tsx src/index.ts --mode=both",
     "start:http": "tsx src/index.ts --mode=http",
     "mcp": "tsx src/index.ts --mode=mcp",

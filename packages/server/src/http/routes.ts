@@ -8,7 +8,6 @@ import type { RequirementNode } from '@clarifyai/shared';
 import type { SessionService } from '../core/sessionService.js';
 import type { SessionStore } from '../store/sessionStore.js';
 import type { ServerConfig } from '../config.js';
-import { renderSpecMarkdown } from '../core/specRender.js';
 import { mountMcpHttp } from '../mcp/httpTransport.js';
 
 /**
@@ -39,6 +38,7 @@ const FeedbackBody = z.object({
   action: z.enum(['confirmed', 'need-more', 'abort']),
   userFreeText: z.string().default(''),
   expandRequests: z.array(z.string()).default([]),
+  suggestRequests: z.array(z.string()).default([]),
 });
 
 type AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>;
@@ -107,17 +107,30 @@ export function createApp(deps: AppDeps): express.Express {
     }),
   );
 
-  /** 规格预览：随时可看当前确认结果长什么样，不改动会话状态 */
-  app.get(
-    '/api/sessions/:id/spec',
+  /** 删除一次澄清记录。文件删掉即彻底消失，没有回收站 */
+  app.delete(
+    '/api/sessions/:id',
     wrap(async (req, res) => {
-      const session = await store.load(req.params.id ?? '');
-      if (!session) {
+      const removed = await store.remove(req.params.id ?? '');
+      if (!removed) {
         res.status(404).json({ error: '会话不存在' });
         return;
       }
-      const confirmed = session.nodes.filter((n) => n.status === 'confirmed' && n.kind !== 'out-of-scope');
-      res.json({ markdown: renderSpecMarkdown(session, confirmed, '') });
+      res.json({ ok: true });
+    }),
+  );
+
+  /** 裁决一条 AI 建议：采纳才写入需求树，忽略则只是撤掉灰字 */
+  app.post(
+    '/api/sessions/:id/suggestions/:suggestionId',
+    wrap(async (req, res) => {
+      const body = z.object({ accept: z.boolean() }).parse(req.body);
+      const result = await service.resolveSuggestion(
+        req.params.id ?? '',
+        req.params.suggestionId ?? '',
+        body.accept,
+      );
+      res.json(result);
     }),
   );
 

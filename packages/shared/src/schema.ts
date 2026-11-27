@@ -41,7 +41,12 @@ export const NODE_KIND_LABEL: Record<NodeKind, string> = {
   'out-of-scope': '本期不做',
 };
 
-/** 条目的裁决状态。只有 confirmed 的条目才会进入最终规格。 */
+/**
+ * 条目状态。
+ *
+ * 画布上已经没有「待确认」这一档：落到图上的节点就是正式的（confirmed），
+ * AI 的推断在落地前以建议的形式存在。字段保留只为兼容旧会话数据。
+ */
 export const NodeStatus = z.enum(['draft', 'confirmed', 'rejected']);
 export type NodeStatus = z.infer<typeof NodeStatus>;
 
@@ -77,6 +82,45 @@ export const RequirementNode = z.object({
 export type RequirementNode = z.infer<typeof RequirementNode>;
 
 /* ------------------------------------------------------------------ */
+/* AI 建议                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 建议的落点：
+ * - refine  改写目标节点的内容（标题 / 说明 / 验收标准），用户采纳后才真正写入
+ * - expand  在目标节点下新增一个子需求
+ * - remove  删掉目标节点（含它的子树），整树优化时用来清理冗余
+ * - move    把目标节点挪到另一个父节点下，并落到指定顺序
+ *
+ * 建议不进入 nodes，只是画布上的一层「灰字」—— 用户逐条决定要不要。
+ */
+export const SuggestionAction = z.enum(['refine', 'expand', 'remove', 'move']);
+export type SuggestionAction = z.infer<typeof SuggestionAction>;
+
+export const SuggestionStatus = z.enum(['pending', 'accepted', 'ignored']);
+export type SuggestionStatus = z.infer<typeof SuggestionStatus>;
+
+export const NodeSuggestion = z.object({
+  id: Id,
+  /** refine 时是被改写的节点；expand 时是父节点 */
+  nodeId: Id,
+  action: SuggestionAction,
+  title: z.string().default(''),
+  detail: z.string().default(''),
+  acceptance: z.array(z.string()).default([]),
+  /** move 建议的目标父节点；null 表示挪到根节点下 */
+  targetParentId: Id.nullable().default(null),
+  /** move 建议落在同级里的第几位（0 起）。null / 越界都当末尾 */
+  position: z.number().int().min(0).nullable().default(null),
+  /** 为什么这么改 / 补的是什么，画布上用灰字显示 */
+  note: z.string().default(''),
+  status: SuggestionStatus.default('pending'),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+});
+export type NodeSuggestion = z.infer<typeof NodeSuggestion>;
+
+/* ------------------------------------------------------------------ */
 /* 项目上下文                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -107,7 +151,7 @@ export type ProjectContext = z.infer<typeof ProjectContext>;
  * 会话状态机：
  *   awaiting-user   → 用户正在编辑 / 裁决（主 Agent 可能正阻塞等待）
  *   awaiting-agent  → 用户已提交，球在主 Agent 这边
- *   completed       → 已产出最终规格
+ *   completed       → 历史状态：表示生成过规格。不再作为终态，画布依旧可编辑
  *   aborted         → 用户放弃
  */
 export const SessionStatus = z.enum([
@@ -142,9 +186,24 @@ export const Session = z.object({
    * 否则重启后「授权」凭空消失，AI 又会退回靠自觉行事。
    */
   expandTargets: z.array(Id).default([]),
+  /**
+   * 用户本轮明确要求「AI 补全 / 优化」的节点 id。
+   * 与 expandTargets 一样每次提交整体覆盖，一次性有效。
+   * 空数组表示用户没有点补全按钮。
+   */
+  suggestTargets: z.array(Id).default([]),
   /** 允许的最大拆解深度，防止无限递归 */
   maxDepth: z.number().int().min(1).max(6).default(3),
+  /**
+   * 唯一的根节点 id（画布的标题）。
+   *
+   * 需求树必须单根：一个画布就是一份需求书，标题只能有一个。
+   * 允许为 null 只是为了兼容单根之前的旧会话，新会话一定写入。
+   */
+  rootId: Id.nullable().default(null),
   nodes: z.array(RequirementNode).default([]),
+  /** AI 的补全 / 优化建议。用户逐条采纳或忽略，不采纳就永远不进 nodes */
+  suggestions: z.array(NodeSuggestion).default([]),
   /**
    * 最近一次「主 Agent 提交后」的节点快照。
    * 用户提交时用它与当前 nodes 做差分，得到 diff —— 既让主 Agent 少读全量，
@@ -179,6 +238,8 @@ export const Feedback = z.object({
   sessionId: Id,
   round: z.number().int().nonnegative(),
   action: z.enum(['confirmed', 'need-more', 'abort']),
+  /** 画布唯一的根节点 id（需求书标题） */
+  rootId: Id.nullable().default(null),
   /** 用户操作后的全量节点快照（权威版本，主 Agent 应以此为准） */
   nodes: z.array(RequirementNode),
   /** 相对上一轮的差异，便于主 Agent 快速定位变化 */
@@ -187,6 +248,8 @@ export const Feedback = z.object({
   userFreeText: z.string().default(''),
   /** 用户明确要求继续向下拆解的节点 id */
   expandRequests: z.array(Id).default([]),
+  /** 用户明确要求 AI 补全 / 优化的节点 id，用 clarify_suggest 回应 */
+  suggestRequests: z.array(Id).default([]),
   /** 仍未裁决的 assumption，主 Agent 必须优先处理而不是继续往下拆 */
   pendingAssumptions: z.array(Id).default([]),
   /** AI 的条目被用户改了多少 —— 直接反映「脑补」的严重程度 */

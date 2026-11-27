@@ -16,17 +16,20 @@ export interface ServerConfig {
   webOrigin: string;
   /** 前端构建产物目录。存在时由后端直接托管，HTTP 模式下就不必再单独跑 Vite */
   webDistDir: string;
-  /** MCP 等待用户的默认超时（毫秒） */
-  defaultAwaitTimeoutMs: number;
   /**
-   * 单次工具调用允许阻塞的上限（毫秒），默认与契约上限一致（10 分钟，等于不额外封顶）。
+   * 单次 clarify_await 允许阻塞的上限（毫秒），默认 10 分钟（与契约上限一致）。
    *
-   * 它只在「宿主的工具调用超时比我们更小」时才有用：宿主超了会**直接掐断整次调用**，
-   * 主 Agent 连 round 游标都拿不到。这时用 --max-block-ms 压到宿主上限以内，
-   * 让服务端自己提前返回 pending 再调一次，而不是让请求被杀在半路。
+   * 默认不额外收缩，让调用方传的 timeoutMs 真正生效；宿主若对工具调用设了更小的硬超时，
+   * 用 --max-block-ms 把封顶压到它以下，避免整次调用被掐断。
    */
   maxBlockMs: number;
   autoOpenBrowser: boolean;
+  /**
+   * 开发态：即使本地存在前端构建产物，也把画布地址指向 Vite（5173）。
+   * 否则 build 过一次之后，MCP 返回的 uiUrl 会指向 4317 上的旧快照，
+   * 用户改完前端却看到老页面。
+   */
+  devUi: boolean;
 }
 
 function readFlag(argv: readonly string[], name: string): string | undefined {
@@ -57,10 +60,9 @@ function resolveDefaultWebDist(): string {
 export function loadConfig(argv: readonly string[] = process.argv.slice(2)): ServerConfig {
   const mode = (readFlag(argv, 'mode') ?? process.env.CLARIFY_MODE ?? 'both') as RunMode;
   const port = Number(readFlag(argv, 'port') ?? process.env.CLARIFY_PORT ?? 4317);
-  const timeout = Number(readFlag(argv, 'await-timeout') ?? process.env.CLARIFY_AWAIT_TIMEOUT ?? 120_000);
-  // 默认不额外封顶（与契约上限一致，即 10 分钟）。
-  // 只有宿主的工具调用超时比这更小时，才需要用它压到宿主上限以内 ——
-  // 让服务端自己提前返回 pending，而不是被宿主把整次调用掐断。
+  // 默认与契约上限一致（10 分钟），不额外收缩。
+  // 只有宿主自己的工具调用超时比这更小时，才需要压到它以下 ——
+  // 让服务端自己提前返回 pending，而不是被宿主把请求掐断。
   const maxBlock = Number(readFlag(argv, 'max-block-ms') ?? process.env.CLARIFY_MAX_BLOCK_MS ?? 600_000);
 
   const dataDir =
@@ -76,10 +78,8 @@ export function loadConfig(argv: readonly string[] = process.argv.slice(2)): Ser
     dataDir,
     webOrigin: readFlag(argv, 'web-origin') ?? process.env.CLARIFY_WEB_ORIGIN ?? 'http://127.0.0.1:5173',
     webDistDir: readFlag(argv, 'web-dist') ?? process.env.CLARIFY_WEB_DIST ?? resolveDefaultWebDist(),
-    // 实测：MCP 宿主约 60 秒就会掐断工具调用，120 秒必然失败，
-    // 因此默认值压到 25 秒，靠 round 游标 + 反复调用来覆盖长等待
-    defaultAwaitTimeoutMs: Number.isFinite(timeout) ? timeout : 25_000,
     maxBlockMs: Number.isFinite(maxBlock) && maxBlock >= 1_000 ? maxBlock : 600_000,
     autoOpenBrowser: readFlag(argv, 'open') !== 'false',
+    devUi: argv.includes('--dev-ui'),
   };
 }

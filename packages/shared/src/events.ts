@@ -6,7 +6,7 @@
  * - 用户在画布上编辑 / 裁决     → 服务端广播并唤醒阻塞中的主 Agent
  */
 import { z } from 'zod';
-import { RequirementNode, Session, SessionStatus } from './schema.js';
+import { NodeSuggestion, RequirementNode, Session, SessionStatus } from './schema.js';
 
 /* ---------------------------- 服务端 → 客户端 ---------------------------- */
 
@@ -45,6 +45,10 @@ export const SessionPatchedPayload = z.object({
   status: SessionStatus,
   upserted: z.array(RequirementNode).default([]),
   removedIds: z.array(z.string()).default([]),
+  /** AI 新提交的补全建议（灰字），按 nodeId 挂到对应节点上 */
+  suggestions: z.array(NodeSuggestion).default([]),
+  /** 已处理（采纳 / 忽略）的建议，从画布上撤掉 */
+  removedSuggestionIds: z.array(z.string()).default([]),
   /** 本轮拆解思路说明 */
   agentNote: z.string().default(''),
 });

@@ -1,4 +1,4 @@
-import { NODE_KIND_LABEL } from '@clarifyai/shared';
+import { NODE_KIND_LABEL, naturalizeCriterion } from '@clarifyai/shared';
 import type { RequirementNode, Session } from '@clarifyai/shared';
 
 /**
@@ -32,7 +32,8 @@ function renderNode(
   if (node.acceptance.length > 0) {
     lines.push(`${inner}- 验收标准：`);
     for (const criterion of node.acceptance) {
-      lines.push(`${inner}  - [ ] ${criterion}`);
+      const text = naturalizeCriterion(criterion);
+      if (text) lines.push(`${inner}  - [ ] ${text}`);
     }
   }
 
@@ -77,17 +78,30 @@ export function renderSpecMarkdown(
   lines.push(`# 需求规格 · ${title}`);
   lines.push('');
   lines.push(`> 原始需求：${session.rawRequirement}`);
-  lines.push(`> 会话：\`${session.id}\`　已确认条目：${confirmed.length} 条`);
+  lines.push(`> 会话：\`${session.id}\`　条目：${confirmed.length} 条`);
   lines.push('');
   lines.push('## 需求清单');
   lines.push('');
 
   const roots = childrenOf.get(null) ?? [];
-  if (roots.length === 0) {
+  // 画布唯一的根就是这份需求书的标题，渲染成二级标题而不是列表项
+  const root = session.rootId ? roots.find((item) => item.id === session.rootId) : undefined;
+
+  if (root) {
+    lines.push(`## ${root.title}`);
+    lines.push('');
+    if (root.detail.trim()) {
+      for (const line of root.detail.trim().split('\n')) lines.push(line);
+      lines.push('');
+    }
+    for (const child of childrenOf.get(root.id) ?? []) {
+      lines.push(...renderNode(child, childrenOf, 1));
+    }
+  } else if (roots.length === 0) {
     lines.push('_（暂无已确认的需求条目）_');
   } else {
-    for (const root of roots) {
-      lines.push(...renderNode(root, childrenOf, 0));
+    for (const item of roots) {
+      lines.push(...renderNode(item, childrenOf, 0));
     }
   }
   lines.push('');

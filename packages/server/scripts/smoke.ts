@@ -82,7 +82,15 @@ async function main(): Promise<void> {
   check('start 返回会话与画布地址', Boolean(started.sessionId) && started.uiUrl.includes(started.sessionId));
 
   const initial = await store.load(started.sessionId);
-  check('第一层 3 条已落库', initial?.nodes.length === 3, `实际 ${initial?.nodes.length}`);
+  check('画布 = 一条根 + 3 条初稿', initial?.nodes.length === 4, `实际 ${initial?.nodes.length}`);
+
+  const root = initial?.nodes.find((n) => n.parentId === null);
+  check('根节点就是需求书标题', Boolean(root) && root!.id === initial?.rootId, `rootId=${initial?.rootId}`);
+  check(
+    '拆解条目全部挂在根下',
+    initial!.nodes.filter((n) => n.parentId === root!.id).length === 3,
+    `实际 ${initial!.nodes.filter((n) => n.parentId === root!.id).length}`,
+  );
   check(
     '同批次依赖引用被解析成真实 id',
     (() => {
@@ -105,8 +113,28 @@ async function main(): Promise<void> {
   });
 
   const afterEdit = await store.load(started.sessionId);
-  check('画布编辑后节点数减少', afterEdit?.nodes.length === 2);
+  check('画布编辑后节点数减少', afterEdit?.nodes.length === 3, `实际 ${afterEdit?.nodes.length}`);
   check('画布编辑不推进轮次', afterEdit?.round === 0, `round=${afterEdit?.round}`);
+
+  /* 单根是不变量：画布不接受第二个根，也不允许删掉根 */
+  let secondRootError = '';
+  try {
+    await service.applyCanvasPatch(started.sessionId, {
+      upserted: [{ ...a1, id: 'secondroot001', parentId: null, title: '第二个根' }],
+      removedIds: [],
+    });
+  } catch (error) {
+    secondRootError = error instanceof Error ? error.message : String(error);
+  }
+  check('画布拒绝第二个根节点', secondRootError.includes('只允许一个根'), secondRootError.slice(0, 60));
+
+  let removeRootError = '';
+  try {
+    await service.applyCanvasPatch(started.sessionId, { upserted: [], removedIds: [root!.id] });
+  } catch (error) {
+    removeRootError = error instanceof Error ? error.message : String(error);
+  }
+  check('根节点不可删除', removeRootError.includes('不能删除'), removeRootError.slice(0, 60));
 
   /* 4. 用户提交 */
   await service.submitCanvasFeedback(started.sessionId, {
@@ -154,7 +182,7 @@ async function main(): Promise<void> {
 
   check('子需求已创建', submitted.created.length === 1);
   check('新条目父节点正确', submitted.created[0]?.parentId === a1.id);
-  check('新条目层级加深', submitted.created[0]?.depth === 1, `depth=${submitted.created[0]?.depth}`);
+  check('新条目层级加深', submitted.created[0]?.depth === 2, `depth=${submitted.created[0]?.depth}`);
 
   const afterSubmit = await store.load(started.sessionId);
   check('提交后状态交回用户可编辑', afterSubmit?.status === 'awaiting-user', `status=${afterSubmit?.status}`);
@@ -162,6 +190,137 @@ async function main(): Promise<void> {
     'AI 的回应被写回节点',
     Boolean(afterSubmit?.nodes.find((n) => n.id === a1.id)?.detail.includes('已改为只处理 jpg')),
   );
+
+  /* 5.5 补全建议：灰字不落地，用户采纳才写进需求树 */
+  const beforeSuggest = (await store.load(started.sessionId))!;
+  const suggested = await service.suggest({
+    sessionId: started.sessionId,
+    items: [
+      {
+        nodeId: a1.id,
+        action: 'refine',
+        title: '',
+        detail: '',
+        acceptance: ['WHEN 目录里只有 png THEN 直接跳过'],
+        note: '补一条验收标准',
+      },
+      {
+        nodeId: a1.id,
+        action: 'expand',
+        title: '按扩展名过滤',
+        detail: '',
+        acceptance: [],
+        note: '',
+      },
+    ],
+  });
+
+  check(
+    '建议创建为 pending',
+    suggested.created.length === 2 && suggested.created.every((s) => s.status === 'pending'),
+  );
+
+  const afterSuggest = (await store.load(started.sessionId))!;
+  check(
+    '建议不直接写入需求树',
+    afterSuggest.nodes.length === beforeSuggest.nodes.length,
+    `${beforeSuggest.nodes.length} → ${afterSuggest.nodes.length}`,
+  );
+
+  await service.resolveSuggestion(started.sessionId, suggested.created[0]!.id, true);
+  const afterAcceptRefine = (await store.load(started.sessionId))!;
+  check(
+    '采纳 refine 后验收标准落地',
+    Boolean(
+      afterAcceptRefine.nodes
+        .find((n) => n.id === a1.id)
+        ?.acceptance.includes('WHEN 目录里只有 png THEN 直接跳过'),
+    ),
+  );
+
+  await service.resolveSuggestion(started.sessionId, suggested.created[1]!.id, true);
+  const afterAcceptExpand = (await store.load(started.sessionId))!;
+  const newChild = afterAcceptExpand.nodes.find((n) => n.title === '按扩展名过滤');
+  check('采纳 expand 后新增子节点', Boolean(newChild) && newChild!.parentId === a1.id);
+
+  /* 5.6 结构性建议：move 换父节点、remove 删冗余 */
+  const movedSuggestion = await service.suggest({
+    sessionId: started.sessionId,
+    items: [
+      {
+        nodeId: newChild!.id,
+        action: 'move',
+        title: '',
+        detail: '',
+        acceptance: [],
+        targetParentId: root!.id,
+        position: 0,
+        note: '这条更像顶层流程',
+      },
+    ],
+  });
+  await service.resolveSuggestion(started.sessionId, movedSuggestion.created[0]!.id, true);
+
+  const afterMove = (await store.load(started.sessionId))!;
+  const movedNode = afterMove.nodes.find((n) => n.title === '按扩展名过滤');
+  check('采纳 move 后父节点改变', movedNode?.parentId === root!.id, `parentId=${movedNode?.parentId}`);
+  check('采纳 move 后层级重算', movedNode?.depth === 1, `depth=${movedNode?.depth}`);
+
+  const beforeRemoveCount = afterMove.nodes.length;
+  const removeSuggestion = await service.suggest({
+    sessionId: started.sessionId,
+    items: [
+      {
+        nodeId: movedNode!.id,
+        action: 'remove',
+        title: '',
+        detail: '',
+        acceptance: [],
+        note: '与现有条目重复',
+      },
+    ],
+  });
+  const removeResult = await service.resolveSuggestion(
+    started.sessionId,
+    removeSuggestion.created[0]!.id,
+    true,
+  );
+
+  const afterRemoveNode = (await store.load(started.sessionId))!;
+  check(
+    '采纳 remove 后节点被删除',
+    afterRemoveNode.nodes.length === beforeRemoveCount - 1,
+    `${beforeRemoveCount} → ${afterRemoveNode.nodes.length}`,
+  );
+  check('采纳 remove 后返回被删 id', removeResult.removedIds.includes(movedNode!.id));
+
+  let missingSuggestionError = '';
+  try {
+    await service.resolveSuggestion(started.sessionId, 'no-such-suggestion', true);
+  } catch (error) {
+    missingSuggestionError = error instanceof Error ? error.message : String(error);
+  }
+  check(
+    '不存在的建议被拒绝',
+    missingSuggestionError.includes('建议不存在'),
+    missingSuggestionError.slice(0, 40),
+  );
+
+  const a2 = (await store.load(started.sessionId))!.nodes.find((n) =>
+    n.title.includes('读取每张图片'),
+  )!;
+  const batch = await service.suggest({
+    sessionId: started.sessionId,
+    items: [a1.id, a2.id, root!.id, submitted.created[0]!.id].map((nodeId, index) => ({
+      nodeId,
+      action: 'refine' as const,
+      title: `建议标题 ${index}`,
+      detail: '',
+      acceptance: [],
+      note: '批量建议',
+    })),
+  });
+  check('条数不再按场景硬卡', batch.created.length === 4, `实际 ${batch.created.length}`);
 
   /* 6. 用户确认全部并收口 */
   const all = afterSubmit!;
@@ -248,11 +407,20 @@ async function main(): Promise<void> {
   check('规格包含实现路径', finalized.spec.markdown.includes('先扫描目录'));
 
   const closed = await store.load(started.sessionId);
-  check('会话已收口', closed?.status === 'completed');
+  check(
+    '生成规格后会话仍可继续编辑',
+    closed?.status === 'awaiting-user',
+    `status=${closed?.status}`,
+  );
 
-  /* 9. 历史会话可被找回 */
+  /* 9. 历史会话可被找回、可被删除 */
   const list = await store.list();
   check('历史会话可列出', list.length === 1);
+
+  const removed = await store.remove(started.sessionId);
+  const afterRemove = await store.list();
+  check('会话可被删除', removed && afterRemove.length === 0, `剩余 ${afterRemove.length}`);
+  check('重复删除返回 false（幂等）', (await store.remove(started.sessionId)) === false);
 
   process.stdout.write(`\n--- 规格预览 ---\n${finalized.spec.markdown.slice(0, 700)}\n`);
 

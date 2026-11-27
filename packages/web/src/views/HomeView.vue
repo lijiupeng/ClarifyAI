@@ -1,17 +1,35 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
-import { fetchSessions } from '@/api/client';
+import { deleteSession, fetchSessions } from '@/api/client';
 import type { SessionSummary } from '@/api/client';
 
 const sessions = ref<SessionSummary[]>([]);
 const loading = ref(true);
 const error = ref('');
+const removingId = ref('');
+
+async function remove(item: SessionSummary): Promise<void> {
+  const confirmed = window.confirm(
+    `删除后无法恢复，确定删除这次澄清记录吗？\n\n${item.rawRequirement.slice(0, 60)}`,
+  );
+  if (!confirmed) return;
+
+  removingId.value = item.id;
+  try {
+    await deleteSession(item.id);
+    sessions.value = sessions.value.filter((session) => session.id !== item.id);
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    removingId.value = '';
+  }
+}
 
 const STATUS_TEXT: Record<string, string> = {
-  'awaiting-user': '等待用户裁决',
+  'awaiting-user': '可继续编辑',
   'awaiting-agent': 'AI 正在处理',
-  completed: '已收口',
+  completed: '可继续编辑',
   aborted: '已终止',
 };
 
@@ -48,7 +66,7 @@ onMounted(async () => {
     </div>
 
     <ul v-else class="session-list">
-      <li v-for="item in sessions" :key="item.id">
+      <li v-for="item in sessions" :key="item.id" class="row">
         <RouterLink :to="`/session/${item.id}`" class="card">
           <div class="card__top">
             <span class="pill" :class="{ 'status-confirmed': item.status === 'completed' }">
@@ -62,6 +80,15 @@ onMounted(async () => {
             <span>第 {{ item.round }} 轮</span>
           </div>
         </RouterLink>
+
+        <button
+          class="card__delete"
+          :disabled="removingId === item.id"
+          title="删除这次澄清记录"
+          @click="remove(item)"
+        >
+          {{ removingId === item.id ? '删除中…' : '删除' }}
+        </button>
       </li>
     </ul>
   </div>
@@ -92,6 +119,41 @@ onMounted(async () => {
   padding: 0;
   display: grid;
   gap: 12px;
+}
+
+.row {
+  position: relative;
+}
+
+.card__delete {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.row:hover .card__delete,
+.card__delete:focus-visible {
+  opacity: 1;
+}
+
+.card__delete:hover:not(:disabled) {
+  color: #b91c1c;
+  border-color: #f2cccc;
+  background: #fdf2f2;
+}
+
+.card__delete:disabled {
+  opacity: 1;
+  color: var(--text-faint);
+  cursor: default;
 }
 
 .card {

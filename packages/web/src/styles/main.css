@@ -1,33 +1,33 @@
 :root {
-  --bg: #0c0e15;
-  --bg-elevated: #12161f;
-  --bg-panel: #161b27;
-  --bg-hover: #1c2231;
-  --border: #242b3d;
-  --border-strong: #333d55;
+  --bg: #f5f6f8;
+  --bg-elevated: #ffffff;
+  --bg-panel: #ffffff;
+  --bg-hover: #eef1f5;
+  --border: #e3e6ec;
+  --border-strong: #d5d9e2;
 
-  --text: #e7eaf4;
-  --text-dim: #8d96ae;
-  --text-faint: #5c6580;
+  --text: #1b2230;
+  --text-dim: #5d6779;
+  --text-faint: #8b94a6;
 
-  --accent: #6366f1;
-  --accent-hover: #7c7ef5;
-  --accent-soft: rgba(99, 102, 241, 0.14);
+  --accent: #5b5bd6;
+  --accent-hover: #4a4ac4;
+  --accent-soft: rgba(91, 91, 214, 0.12);
 
-  --ok: #22c55e;
-  --warn: #f59e0b;
-  --danger: #ef4444;
+  --ok: #16a34a;
+  --warn: #d97706;
+  --danger: #dc2626;
 
-  --kind-functional: #4f8ef7;
-  --kind-non-functional: #a06bf5;
-  --kind-constraint: #14b8a6;
-  --kind-assumption: #f59e0b;
+  --kind-functional: #2f6fd0;
+  --kind-non-functional: #7c4dd1;
+  --kind-constraint: #0d9488;
+  --kind-assumption: #b45309;
   --kind-out-of-scope: #64748b;
 
   --radius: 10px;
   --radius-sm: 6px;
 
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 * {
@@ -69,14 +69,14 @@ select {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2a3145;
+  background: #cdd3de;
   border: 2px solid transparent;
   background-clip: content-box;
   border-radius: 6px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a4460;
+  background: #b6becc;
   background-clip: content-box;
 }
 
@@ -89,18 +89,18 @@ select {
   padding: 7px 14px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  background: var(--bg-hover);
+  background: #ffffff;
   transition: background 0.15s, border-color 0.15s, opacity 0.15s;
   white-space: nowrap;
 }
 
 .btn:hover:not(:disabled) {
-  background: #232a3c;
-  border-color: #3d4866;
+  background: var(--bg-hover);
+  border-color: #c2c8d4;
 }
 
 .btn:disabled {
-  opacity: 0.42;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -128,13 +128,13 @@ select {
 }
 
 .btn--danger {
-  color: #ffb4b4;
-  border-color: #5a2b32;
-  background: #2a1619;
+  color: #b91c1c;
+  border-color: #f0c8c8;
+  background: #fdf2f2;
 }
 
 .btn--danger:hover:not(:disabled) {
-  background: #3a1d21;
+  background: #fbe6e6;
 }
 
 .input,
@@ -144,7 +144,7 @@ select {
   padding: 8px 11px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  background: var(--bg);
+  background: #ffffff;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -175,34 +175,34 @@ select {
 
 .kind-functional {
   color: var(--kind-functional);
-  border-color: rgba(79, 142, 247, 0.4);
-  background: rgba(79, 142, 247, 0.12);
+  border-color: #cbdcf5;
+  background: #eef4fd;
 }
 .kind-non-functional {
   color: var(--kind-non-functional);
-  border-color: rgba(160, 107, 245, 0.4);
-  background: rgba(160, 107, 245, 0.12);
+  border-color: #e0d3f6;
+  background: #f5effd;
 }
 .kind-constraint {
   color: var(--kind-constraint);
-  border-color: rgba(20, 184, 166, 0.4);
-  background: rgba(20, 184, 166, 0.12);
+  border-color: #c5e9e3;
+  background: #ecf9f6;
 }
 .kind-assumption {
   color: var(--kind-assumption);
-  border-color: rgba(245, 158, 11, 0.45);
-  background: rgba(245, 158, 11, 0.14);
+  border-color: #f2ddb4;
+  background: #fdf6e7;
 }
 .kind-out-of-scope {
   color: var(--kind-out-of-scope);
-  border-color: rgba(100, 116, 139, 0.4);
-  background: rgba(100, 116, 139, 0.12);
+  border-color: #dde2ea;
+  background: #f2f4f7;
 }
 
 .status-confirmed {
   color: var(--ok);
-  border-color: rgba(34, 197, 94, 0.4);
-  background: rgba(34, 197, 94, 0.12);
+  border-color: #bfe6cd;
+  background: #eefaf2;
 }
 
 .empty-hint {
@@ -218,192 +218,374 @@ select {
 .req-card {
   width: 100%;
   height: 100%;
-  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
-  border: 1px solid #28304a;
-  background: #131c2b;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #e3e6ec;
+  background: #ffffff;
   overflow: hidden;
+  box-shadow: 0 1px 2px rgba(23, 32, 50, 0.05), 0 6px 16px rgba(23, 32, 50, 0.045);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .req-card.is-selected {
   border-color: #8b8dfb;
-  box-shadow: 0 0 0 1px #8b8dfb, 0 10px 30px rgba(99, 102, 241, 0.28);
+  box-shadow: 0 0 0 1px #8b8dfb, 0 10px 28px rgba(91, 91, 214, 0.16);
 }
 
-.req-card__body {
-  flex: 1;
-  min-height: 0;
-  position: relative;
+/* 根节点 = 这份需求书的标题，视觉上必须压过所有分支 */
+.req-card--root {
+  border-color: #d9dcf5;
+  background: linear-gradient(160deg, #f4f5ff, #ffffff 70%);
+  padding: 14px 16px;
+}
+
+.req-card--root.is-selected {
+  border-color: #8b8dfb;
+}
+
+.req-card__meta {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 15px 14px 8px;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  line-height: 1;
+  color: var(--text-faint);
 }
 
-.req-card__icon {
-  flex-shrink: 0;
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  display: grid;
-  place-items: center;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.req-card__text {
-  flex: 1;
-  min-width: 0;
+.req-card__kind {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #f0f2f7;
+  color: #5d6779;
+  letter-spacing: 0.02em;
 }
 
 .req-card__title {
   font-size: 13px;
   font-weight: 600;
-  line-height: 1.35;
-  color: #e7eaf4;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
+  line-height: 1.45;
+  color: #1b2230;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  border-radius: 4px;
+}
+
+.req-card--root .req-card__title {
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  color: #171d2a;
+}
+
+.req-card__detail {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #5d6779;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  border-radius: 4px;
+}
+
+.req-card__detail.is-empty::before {
+  content: attr(data-placeholder);
+  color: #b6bdca;
+}
+
+.req-card__acceptance {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
+}
+
+.req-card__criterion {
+  position: relative;
+  padding-left: 12px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #6e7789;
+  white-space: pre-wrap;
   word-break: break-word;
 }
 
-.req-card__desc {
-  margin-top: 4px;
-  font-size: 11px;
-  color: #8d96ae;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.req-card__criterion::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #4f9a70;
 }
 
-.req-card__dot {
-  position: absolute;
-  right: 12px;
-  top: 15px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #3d4661;
+/* X6 会在画布容器上关掉文本选择，卡片内的可编辑区必须显式打开，
+   否则在输入框里拖选文字会变成拖动画布 */
+.req-card [data-field] {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
+
+/* 可编辑区：悬停才提示，不打扰阅读 */
+.req-card.is-editable [data-field]:hover {
+  background: #f5f7fa;
+}
+
+.req-card [data-field]:focus {
+  background: #f2f3ff;
+  box-shadow: 0 0 0 1px rgba(91, 91, 214, 0.4);
+}
+
+/* ---- 待裁决的 AI 假设 ---- */
+
+.req-card__assumption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid #f0dcb0;
+  background: #fdf7ea;
+}
+
+.req-card__assumption-text {
+  font-size: 10.5px;
+  color: #96702f;
+  white-space: nowrap;
+}
+
+.req-card__assumption-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.req-card__assumption-actions button {
+  padding: 1px 7px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  border-radius: 4px;
+  border: 1px solid #e8cf9c;
+  background: #ffffff;
+  color: #8a6524;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.req-card__assumption-actions button:hover {
+  background: #fbf0d8;
+  color: #6f5018;
+}
+
+/* ---- AI 建议：像代码 diff 一样，灰着，等你决定 ---- */
+
+.req-card__suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 3px;
+}
+
+.req-card__suggestion {
+  padding: 5px 8px 6px;
+  border-left: 2px solid #dfe3ea;
+  border-radius: 0 5px 5px 0;
+  background: #f8f9fb;
+}
+
+.req-card__suggestion-main {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #5f6879;
+  word-break: break-word;
+}
+
+.req-card__suggestion-sub {
+  margin-top: 1px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #78818f;
+  word-break: break-word;
+}
+
+.req-card__suggestion-note {
+  margin-top: 2px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: #8a93a2;
+  font-style: italic;
+}
+
+.req-card__suggestion-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.req-card__suggestion-actions button {
+  padding: 1px 8px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  border-radius: 4px;
+  border: 1px solid #d7dce5;
+  background: #ffffff;
+  color: #5d6779;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.req-card__suggestion-actions button:hover {
+  background: #eef1f6;
+  color: #1b2230;
+  border-color: #c2c9d6;
+}
+
+.req-card__suggestion-actions button:first-child:hover {
+  color: #1f7a4d;
+  border-color: #a9d5bd;
+  background: #f0faf4;
+}
+
+/* ---- AI 建议新增的节点：灰色虚线卡片，点采纳才变成真节点 ---- */
+
+.req-card--ghost {
+  border-style: dashed;
+  border-color: #d6dbe5;
+  background: #fafbfc;
+  box-shadow: none;
+}
+
+.req-card--ghost .req-card__title {
+  color: #6b7485;
+  font-weight: 500;
+}
+
+.req-card--ghost .req-card__detail {
+  color: #8b93a3;
+}
+
+.req-card--ghost .req-card__criterion {
+  color: #9aa2b0;
+}
+
+.req-card--ghost .req-card__kind.is-ghost {
+  background: #eef0f4;
+  color: #7b8496;
+}
+
+.req-card__ghost-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+.req-card__ghost-actions button {
+  padding: 2px 10px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  border-radius: 4px;
+  border: 1px solid #d7dce5;
+  background: #ffffff;
+  color: #5d6779;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.req-card__ghost-actions button:first-child:hover {
+  color: #1f7a4d;
+  border-color: #a9d5bd;
+  background: #f0faf4;
+}
+
+.req-card__ghost-actions button:last-child:hover {
+  background: #eef1f6;
+  color: #3d4658;
+}
+
+/* 正在审阅的那一条：画布主动移过去，并用靛蓝描边标出来 */
+.req-card__suggestion.is-active {
+  border-left-color: #8b8dfb;
+  background: #f3f4ff;
+  box-shadow: 0 0 0 1px rgba(91, 91, 214, 0.22);
+}
+
+.req-card--ghost.is-active {
+  border-color: #8b8dfb;
+  background: #fbfbff;
+  box-shadow: 0 0 0 1px #8b8dfb, 0 10px 28px rgba(91, 91, 214, 0.14);
+}
+
+/* ---- 选中时的操作条 ---- */
 
 .req-card__actions {
-  flex-shrink: 0;
   display: flex;
-  gap: 5px;
-  padding: 4px 10px 9px;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 6px;
 }
 
 .req-card__actions button {
   flex: 1;
   min-width: 0;
-  padding: 4px 2px;
+  padding: 3px 2px;
   font-size: 10.5px;
-  border-radius: 5px;
-  border: 1px solid #2b3348;
-  background: #1a2030;
-  color: #98a2ba;
+  border-radius: 4px;
+  border: 1px solid #e0e4eb;
+  background: #f7f8fa;
+  color: #5d6779;
   white-space: nowrap;
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 
 .req-card__actions button:hover {
-  background: #232b3f;
-  border-color: #3d4766;
-  color: #e7eaf4;
+  background: #eef1f6;
+  border-color: #c9d0dc;
+  color: #1b2230;
 }
 
 .req-card__actions button.is-danger:hover {
-  background: #3a1d21;
-  border-color: #5a2b32;
-  color: #ffb4b4;
+  background: #fdf0f0;
+  border-color: #eec2c2;
+  color: #b91c1c;
 }
 
 .req-card__actions button.is-primary {
-  background: rgba(99, 102, 241, 0.16);
-  border-color: rgba(99, 102, 241, 0.5);
-  color: #b6b8ff;
+  background: #f0f1ff;
+  border-color: #c7c9f7;
+  color: #4a4ac4;
 }
 
 .req-card__actions button.is-primary:hover {
-  background: rgba(99, 102, 241, 0.28);
-  color: #dcddff;
+  background: #e4e6ff;
+  color: #3737a8;
 }
 
-/* 类型配色：图标方块与卡片底色成套出现，扫一眼就能分辨条目性质 */
+/* 类型配色：边框与底色成套出现，扫一眼就能分辨条目性质 */
 .req-card--functional {
-  border-color: #28304a;
-  background: #131c2b;
+  border-color: #e3e6ec;
 }
-.req-card--functional .req-card__icon {
-  background: rgba(79, 142, 247, 0.16);
-  color: #4f8ef7;
-  box-shadow: inset 0 0 0 1px rgba(79, 142, 247, 0.45);
-}
-
 .req-card--non-functional {
-  border-color: #322b4a;
-  background: #1a1730;
+  border-color: #e6ddf6;
+  background: #fdfcff;
 }
-.req-card--non-functional .req-card__icon {
-  background: rgba(160, 107, 245, 0.16);
-  color: #a06bf5;
-  box-shadow: inset 0 0 0 1px rgba(160, 107, 245, 0.45);
-}
-
 .req-card--constraint {
-  border-color: #1f3f3c;
-  background: #112523;
+  border-color: #d5eae5;
+  background: #fbfefd;
 }
-.req-card--constraint .req-card__icon {
-  background: rgba(20, 184, 166, 0.16);
-  color: #14b8a6;
-  box-shadow: inset 0 0 0 1px rgba(20, 184, 166, 0.45);
-}
-
 .req-card--assumption {
-  border-color: #4a3a1c;
-  background: #2a2011;
+  border-color: #f0dcb0;
+  background: #fffdf7;
 }
-.req-card--assumption .req-card__icon {
-  background: rgba(245, 158, 11, 0.18);
-  color: #f59e0b;
-  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.5);
-}
-
 .req-card--out-of-scope {
-  border-color: #2a3040;
-  background: #161a22;
-}
-.req-card--out-of-scope .req-card__icon {
-  background: rgba(100, 116, 139, 0.16);
-  color: #94a3b8;
-  box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.4);
-}
-
-/* 待确认 = 虚线边框（还没定下来） */
-.req-card.is-draft {
-  border-style: dashed;
-}
-
-.req-card.is-confirmed .req-card__dot {
-  background: #22c55e;
-}
-
-.req-card.is-rejected {
-  opacity: 0.5;
-}
-.req-card.is-rejected .req-card__dot {
-  background: #ef4444;
-}
-.req-card.is-rejected .req-card__title {
-  text-decoration: line-through;
-  color: #5c6580;
+  border-color: #e4e7ec;
+  background: #fafbfc;
 }
 
 /* X6 给 HTML 节点的容器不一定撑满，这里补齐，否则卡片会缩成一团 */

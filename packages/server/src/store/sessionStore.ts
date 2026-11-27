@@ -34,6 +34,17 @@ export class SessionStore {
     await fs.rename(tmp, target);
   }
 
+  /** 删除一个会话文件。返回 false 表示本来就不存在（幂等） */
+  async remove(id: string): Promise<boolean> {
+    try {
+      await fs.unlink(this.fileOf(id));
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+  }
+
   async load(id: string): Promise<Session | null> {
     try {
       const raw = await fs.readFile(this.fileOf(id), 'utf8');

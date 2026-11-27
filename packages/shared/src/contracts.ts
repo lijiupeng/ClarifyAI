@@ -9,7 +9,15 @@
  * 工具分档加载参照 claude-task-master（避免工具描述本身吃掉大量上下文）。
  */
 import { z } from 'zod';
-import { Feedback, NodeKind, ProjectContext, RequirementNode, RequirementSpec, SessionStatus } from './schema.js';
+import {
+  Feedback,
+  NodeKind,
+  NodeSuggestion,
+  ProjectContext,
+  RequirementNode,
+  RequirementSpec,
+  SessionStatus,
+} from './schema.js';
 
 const Id = z.string().min(1);
 
@@ -29,7 +37,9 @@ export const DecompositionItem = z
       .describe(
         '验收标准。每条写成「WHEN <前置条件> THEN <可观测结果>」，例如 ' +
           '"WHEN 用户提交空表单 THEN 显示红色错误提示且不发起请求"。' +
-          '写不出验收标准说明该条目还没拆到位，或本身就是模糊的；assumption 类型可留空',
+          '展示层会自动转成「条件 → 结果」，用户看不到 WHEN/THEN。' +
+          '首次开启会话时一律留空 —— 首轮只搭标题骨架，细节等结构确认后再补；' +
+          '后续轮次写不出验收标准，说明该条目还没拆到位',
       ),
     dependsOnKeys: z.array(z.string()).default([]).describe('依赖本批次内其他条目的 key，用于表达实现顺序'),
     userNoteRef: z
@@ -48,10 +58,21 @@ export type DecompositionItem = z.infer<typeof DecompositionItem>;
 export const StartInput = z.object({
   projectContext: ProjectContext.describe('项目上下文。由你（主 Agent）总结后传入，工具不做扫描猜测'),
   rawRequirement: z.string().min(1).describe('用户原始总需求，保留原话，不要改写'),
+  rootTitle: z
+    .string()
+    .default('')
+    .describe(
+      '画布根节点的标题 —— 一个画布只有一个根，它就是这份需求书的标题。' +
+        '留空则取 rawRequirement 的前 24 个字。根节点不参与拆解，只承载整棵需求树。',
+    ),
   decomposition: z
     .array(DecompositionItem)
     .min(1)
-    .describe('你对总需求的第一层拆解。工具会把它渲染成可编辑画布交给用户逐条裁决'),
+    .describe(
+      '你对总需求的第一层拆解，会成为根节点下的一级子节点。' +
+        '首轮只给标题、按同一个切分维度展开，兄弟节点之间互斥；' +
+        '与根节点无关的条目不要放进来，宁可不写',
+    ),
   maxDepth: z.number().int().min(1).max(6).default(3).describe('允许的最大拆解深度，防止无限递归'),
   openUi: z.boolean().default(true).describe('是否自动在浏览器打开画布'),
   interactionMode: z
@@ -92,9 +113,9 @@ export const AwaitInput = z.object({
     .max(600000)
     .default(600_000)
     .describe(
-      '单次阻塞上限（毫秒），默认 10 分钟，通常无需传。宿主若对工具调用设了硬超时（不少客户端默认 60 秒），' +
-        '需要在宿主的 MCP 配置里一并放大，否则整次调用会被掐断；' +
-        '也可用服务端的 --max-block-ms 主动压小，让它在宿主掐断前自己返回 pending',
+      '单次阻塞上限（毫秒），默认 10 分钟，通常无需传。' +
+        '宿主对工具调用另有硬超时（不少客户端只有 60 秒），要从宿主的 MCP 配置里一并放大，' +
+        '否则整次调用会被掐断；服务端也可用 --max-block-ms 统一压小',
     ),
 });
 export type AwaitInput = z.infer<typeof AwaitInput>;
@@ -117,7 +138,9 @@ export type AwaitOutput = z.infer<typeof AwaitOutput>;
 
 export const SubmitDecompositionInput = z.object({
   sessionId: Id,
-  parentId: Id.nullable().describe('拆解结果挂载到哪个节点下；传 null 表示补充顶层需求'),
+  parentId: Id.nullable().describe(
+    '拆解结果挂载到哪个节点下。传 null 等同于挂到根节点下 —— 画布只有一个根，不存在「补充顶层需求」',
+  ),
   items: z
     .array(DecompositionItem)
     .default([])
@@ -147,6 +170,67 @@ export const SubmitDecompositionOutput = z.object({
 export type SubmitDecompositionOutput = z.infer<typeof SubmitDecompositionOutput>;
 
 /* ------------------------------------------------------------------ */
+/* 3.5 clarify_suggest —— 补全 / 优化已有节点（灰字建议）                 */
+/* ------------------------------------------------------------------ */
+
+const SuggestItem = z
+  .object({
+    nodeId: Id.describe('建议落点。refine = 被改写的节点；expand = 新子节点的父节点'),
+    action: z
+      .enum(['refine', 'expand', 'remove', 'move'])
+      .default('refine')
+      .describe(
+        'refine=改写该节点内容；expand=在该节点下补一个子需求；' +
+          'remove=删掉该节点（连同子树）；move=把它挪到另一个父节点下并落到指定顺序',
+      ),
+    title: z.string().default('').describe('建议的标题。refine 时留空表示不改标题；expand 时必填'),
+    detail: z.string().default('').describe('建议的补充说明。留空表示不改'),
+    acceptance: z
+      .array(z.string().min(1))
+      .default([])
+      .describe('建议的验收标准（WHEN/THEN）。留空表示不改'),
+    targetParentId: Id.nullable()
+      .default(null)
+      .describe('仅 move 用：新的父节点 id；传 null 表示挪到根节点下'),
+    position: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .default(null)
+      .describe('仅 move 用：落到同级里的第几位（0 起）；不传则排到末尾'),
+    note: z.string().default('').describe('一句话说明为什么这么补，会以灰字显示在画布上'),
+  })
+  .describe('一条补全建议');
+
+/**
+ * 建议不会直接写进需求树 —— 它以灰字渲染在目标节点里，由用户逐条采纳。
+ *
+ * 一次最多 3 条：用户看的是「这条补得对不对」，不是让你把整棵树重写一遍。
+ * 想改更多，等用户处理完这一批再来。
+ */
+export const SuggestInput = z.object({
+  sessionId: Id,
+  items: z
+    .array(SuggestItem)
+    .min(1)
+    .max(30)
+    .describe(
+      '本批建议。条数由你按内容判断（建议 3~10 条），服务端只挡明显异常的批量。' +
+        '别把整棵树重写一遍塞给用户 —— 那是把裁决成本转嫁出去',
+    ),
+});
+export type SuggestInput = z.infer<typeof SuggestInput>;
+
+export const SuggestOutput = z.object({
+  sessionId: Id,
+  round: z.number().int(),
+  created: z.array(NodeSuggestion).describe('本批建议，含服务端分配的 id'),
+  warnings: z.array(z.string()).default([]),
+});
+export type SuggestOutput = z.infer<typeof SuggestOutput>;
+
+/* ------------------------------------------------------------------ */
 /* 4. clarify_get_session —— 非阻塞读取当前状态                         */
 /* ------------------------------------------------------------------ */
 
@@ -161,13 +245,16 @@ export const GetSessionOutput = z.object({
   round: z.number().int(),
   projectContext: ProjectContext,
   rawRequirement: z.string(),
+  /** 画布唯一的根节点（需求书标题）。所有节点都在这棵树上 */
+  rootId: Id.nullable(),
   nodes: z.array(RequirementNode),
+  suggestions: z.array(NodeSuggestion).default([]).describe('已提交的补全建议及其裁决状态'),
   pendingAssumptions: z.array(RequirementNode).describe('尚未裁决的 AI 假设，必须优先处理'),
 });
 export type GetSessionOutput = z.infer<typeof GetSessionOutput>;
 
 /* ------------------------------------------------------------------ */
-/* 5. clarify_finalize —— 收口产出最终规格                              */
+/* 5. clarify_finalize —— 生成规格快照（会话不结束）                     */
 /* ------------------------------------------------------------------ */
 
 export const FinalizeInput = z.object({
@@ -224,7 +311,7 @@ export const ValidateOutput = z.object({
   stats: z.object({
     total: z.number().int(),
     confirmed: z.number().int(),
-    draftAssumptions: z.number().int(),
+    draftAssumptions: z.number().int().describe('仍是 assumption、尚未被用户裁决的节点数'),
     missingAcceptance: z.number().int(),
     /** AI 初稿被用户改动 / 删除的比例，直接量化「脑补」的严重程度 */
     aiDraftCorrectionRate: z.number(),
@@ -259,9 +346,15 @@ export type ListSessionsOutput = z.infer<typeof ListSessionsOutput>;
 /* ------------------------------------------------------------------ */
 
 export const MCP_TOOL_GROUPS = {
-  /** 最小闭环：开启 → 阻塞等待 → 提交拆解 → 查询状态 */
-  core: ['clarify_start', 'clarify_await', 'clarify_submit_decomposition', 'clarify_get_session'],
-  /** 完整流程：收口与终止 */
+  /** 最小闭环：开启 → 阻塞等待 → 提交拆解 → 补全建议 → 查询状态 */
+  core: [
+    'clarify_start',
+    'clarify_await',
+    'clarify_submit_decomposition',
+    'clarify_suggest',
+    'clarify_get_session',
+  ],
+  /** 完整流程：生成规格快照与终止 */
   standard: ['clarify_finalize', 'clarify_abort'],
   /** 诊断工具：体检与找回历史会话 */
   extra: ['clarify_validate', 'clarify_list_sessions'],

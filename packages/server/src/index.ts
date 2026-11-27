@@ -45,9 +45,9 @@ async function main(): Promise<void> {
   // 画布地址的优先级：后端自己托管前端产物时指向后端，否则回落到 Vite 开发服务器。
   // 早先无条件用 webOrigin，导致 MCP 返回的 uiUrl 指向没启动的 5173，用户点开是空白页 ——
   // 明明 4317 上就有一模一样的画布。
-  const uiBase = fs.existsSync(path.join(config.webDistDir, 'index.html'))
-    ? `http://${config.host}:${config.httpPort}`
-    : config.webOrigin;
+  const hasBuiltWeb = fs.existsSync(path.join(config.webDistDir, 'index.html'));
+  const uiBase =
+    hasBuiltWeb && !config.devUi ? `http://${config.host}:${config.httpPort}` : config.webOrigin;
 
   const service = new SessionService({
     store,

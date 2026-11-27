@@ -73,10 +73,17 @@ ClarifyAI 用「轮次游标 + 落盘数据」兜底：
 
 需求树与依赖关系全部由系统绘制，用户**拖不出任何连线**（`allowNode`/`allowBlank`/`allowEdge`/`allowPort` 全关）。
 
-### 5. 可视化画布，但不需要写插件
+### 5. 画布就是需求书，不另写文档
 
-画布是 Vue 3 + AntV X6 的横向思维导图，卡片式节点。打开方式由 AI 助手决定 ——
-**用编辑器自带的内嵌浏览器即可**（VS Code / Cursor 的 `workbench.action.openSimpleBrowser`，JetBrains 的内置预览面板），
+画布是 Vue 3 + AntV X6 的横向思维导图：**一张画布只有一个根节点，它就是需求书的标题**，
+其余条目全是它的子节点。标题、说明、验收标准都在卡片里直接编辑，
+`Tab` 加子节点、`Enter` 加同级，没有右侧详情栏，也没有单独导出的 Markdown 说明书要看。
+
+AI 的补全与优化以**灰色建议**的形式挂在对应节点上，逐条「采纳 / 忽略」——
+它会猜，但不会替你做决定。
+
+打开方式由 AI 助手决定：**用编辑器自带的内嵌浏览器即可**
+（VS Code / Cursor 的 `workbench.action.openSimpleBrowser`，JetBrains 的内置预览面板），
 不需要开发任何原生插件。
 
 ---
@@ -146,10 +153,11 @@ node packages/server/dist/index.js --mode=http
 }
 ```
 
-> `timeout` 是**宿主对单次工具调用的硬超时**。`clarify_await` 是阻塞式的、默认单次最长等 10 分钟，
-> 而不少客户端对工具调用只给 60 秒，所以这里显式放大到 15 分钟（各家字段名与单位不一，给个足够大的值即可）。
-> 反过来，宿主的超时若比服务端更小，就用 `clarify_await` 的 `timeoutMs` 或服务端 `--max-block-ms` 压到上限以内。
-> 就算被掐断也不丢操作：`clarify_await` 超时返回 `pending`，凭 round 游标再调一次即可。
+> `timeout` 是**宿主对单次工具调用的硬超时**，这里给一个足够大的值（各家字段名与单位不一）。
+> `clarify_await` 单次默认阻塞 **10 分钟**；宿主超时若比它小，请求会被掐断，所以要把它放大到 15 分钟。
+> 反过来，想让服务端自己提前返回，用 `--max-block-ms` 把封顶压到宿主上限以内。
+> 注意客户端对同一个 MCP server 的调用通常是**串行**的：`await` 挂着时调别的工具会排队。
+> 无论超时还是提前返回 `pending`，操作都不会丢，凭 `round` 游标再调一次即可。
 
 ---
 
@@ -187,17 +195,18 @@ node packages/server/dist/index.js --mode=http
 
 | 档位 | 工具数 | 说明 |
 |---|---|---|
-| `core` | 4 | 最小闭环 |
-| `standard`（默认） | 6 | 完整流程 |
-| `all` | 8 | 含诊断工具 |
+| `core` | 5 | 最小闭环 |
+| `standard`（默认） | 7 | 完整流程 |
+| `all` | 9 | 含诊断工具 |
 
 | 工具 | 作用 |
 |---|---|
-| `clarify_start` | 上报项目上下文 + 第一层拆解，开启会话 |
-| `clarify_await` | 阻塞等待用户裁决（**循环调用直到收口**） |
+| `clarify_start` | 上报项目上下文 + 需求书标题 + 第一层拆解，开启会话 |
+| `clarify_await` | 阻塞等待用户裁决（**循环调用，直到用户说不用再澄清**） |
 | `clarify_submit_decomposition` | 提交下一层拆解 / 回应批注 |
+| `clarify_suggest` | 优化建议：改内容 / 补子需求 / 删冗余 / 调整顺序；新增子节点以灰色虚线卡片出现在画布上，采纳才落地 |
 | `clarify_get_session` | 非阻塞读取当前状态 |
-| `clarify_finalize` | 收口并产出需求规格 |
+| `clarify_finalize` | 生成规格快照（**不结束会话**，画布仍可继续编辑） |
 | `clarify_abort` | 终止会话 |
 | `clarify_validate` | 需求质量体检（含 AI 纠偏率统计） |
 | `clarify_list_sessions` | 找回历史会话 |

@@ -7,6 +7,7 @@ import {
   ListSessionsInput,
   MCP_TOOL_GROUPS,
   StartInput,
+  SuggestInput,
   SubmitDecompositionInput,
   ValidateInput,
 } from '@clarifyai/shared';
@@ -67,10 +68,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
         title: '开启需求澄清会话',
         description:
           '当你拿到一个用户总需求、准备动手前，用本工具把需求显式化。' +
-          '传入项目上下文和你对总需求的第一层拆解（1/2/3 条），工具会把结果渲染成可视化画布，' +
-          '让用户逐条删改、裁决、补充，从根上避免你脑补出的细节与用户真实意图背道而驰。\n\n' +
-          '重要：把你所有「不确定但先这么假设」的条目，kind 标成 assumption —— 用户会专门裁决这些，' +
-          '这是本工具最核心的价值。每一条需求都应带 WHEN/THEN 格式的验收标准。\n\n' +
+          '传入项目上下文、需求书标题（rootTitle）和你对总需求的第一层拆解（1/2/3 条），' +
+          '工具会把它渲染成一张思维导图画布：唯一根节点是标题，其余都是它的子节点，' +
+          '用户可以直接在画布上改、增、删，从根上避免你脑补出的细节与用户真实意图背道而驰。\n\n' +
+          '首轮只搭骨架：只给 title，detail 和 acceptance 留空 —— 细节等用户确认结构后再逐层补。\n' +
+          '结构必须是树而不是清单：第一层从 rootTitle 直接延伸，按同一个切分维度展开（功能模块 / 用户旅程 / 系统边界），' +
+          '兄弟节点互斥且合起来覆盖父节点；与父节点无关的条目不要挂进来，宁可这轮先不写。\n\n' +
+          '把你所有「不确定但先这么假设」的条目，kind 标成 assumption —— 用户会专门裁决这些，' +
+          '这是本工具最核心的价值。\n\n' +
           '调用后请紧接着调用 clarify_await 阻塞等待用户结果。',
         inputSchema: StartInput.shape,
       },
@@ -94,8 +99,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
           '返回 status="feedback" → 拿到了用户裁决，按 hint 里的建议行动（通常意味着你要回应批注或继续拆解）。\n' +
           '返回 status="pending" → 等待期间用户没有操作，**用返回的 round 作为 sinceRound 立刻再调一次**继续等。' +
           '重复调用是正常用法而非出错，用户的操作不会因超时丢失。\n' +
-          '注意：单次等待受宿主对工具调用的硬超时限制（不少客户端默认只有 60 秒），' +
-          '接入时建议在宿主的 MCP 配置里把该 server 的 timeout 一并放大，否则请求会被宿主掐断。',
+          '单次默认等待 10 分钟；宿主对工具调用另有硬超时的话，要在宿主的 MCP 配置里把 timeout 一并放大。' +
+          '注意客户端对同一 server 的调用通常是串行的：await 挂着时调 get_session / clarify_suggest 会排队，' +
+          '要看状态先让它返回 pending。',
         inputSchema: AwaitInput.shape,
       },
       async (args) => {
@@ -133,6 +139,35 @@ export function createMcpServer(deps: McpDeps): McpServer {
     );
   }
 
+  if (has('clarify_suggest')) {
+    server.registerTool(
+      'clarify_suggest',
+      {
+        title: '补全 / 优化节点',
+        description:
+          '对画布上的节点给出优化建议，四种动作：\n' +
+          '- refine：改写标题 / 说明 / 验收标准\n' +
+          '- expand：在该节点下补一个子需求\n' +
+          '- remove：删掉该节点（连同子树），用来清理冗余\n' +
+          '- move：把它挪到另一个父节点下并指定顺序（targetParentId / position）\n\n' +
+          '条数由你按内容判断（建议 3~10 条），服务端只挡异常批量。\n' +
+          '用户点「优化整棵树」时，改标题、调顺序、新增节点、补齐说明与验收都可以做，' +
+          '但整体意思不能变，不要引入用户没提过的功能。\n\n' +
+          '建议**不会**直接写入需求树 —— 它以灰字挂在目标节点里，用户逐条「采纳」才生效，' +
+          '被忽略也不会污染需求。\n\n' +
+          'note 写一句为什么这么改，帮用户判断值不值得采纳。',
+        inputSchema: SuggestInput.shape,
+      },
+      async (args) => {
+        try {
+          return ok(await service.suggest(args));
+        } catch (error) {
+          return fail(error);
+        }
+      },
+    );
+  }
+
   if (has('clarify_get_session')) {
     server.registerTool(
       'clarify_get_session',
@@ -157,11 +192,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
     server.registerTool(
       'clarify_finalize',
       {
-        title: '收口并产出需求规格',
+        title: '生成需求规格快照',
         description:
-          '当所有条目都被用户裁决、没有待处理的假设时调用。返回结构化 JSON 规格 + 渲染好的 Markdown，' +
-          'markdown 可直接作为你的实现依据写入上下文。\n' +
-          '若返回 warnings 非空（例如仍有未裁决的假设），说明还没到收口时机，建议先回到澄清流程。',
+          '把当前需求树冻结成一份规格快照：返回结构化 JSON + 渲染好的 Markdown，' +
+          'markdown 可直接作为实现依据写入上下文。\n' +
+          '**调用它不会结束会话** —— 画布一直可编辑，用户随时可能提出新改动，' +
+          '需要新快照时再调一次即可；不存在「收口封板」这回事。\n' +
+          'warnings 非空（例如仍有未裁决的假设）说明这份快照还带着不确定性，建议先在画布上处理。',
         inputSchema: FinalizeInput.shape,
       },
       async (args) => {

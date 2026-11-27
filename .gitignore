@@ -16,6 +16,9 @@ dist/
 # 浏览器验证工具产生的临时快照
 .playwright-cli/
 
+# 代码索引工具的本地缓存
+.codegraph/
+
 # 构建时从仓库根拷进包目录的文档（npm 要求它们在包内才能读取）
 packages/server/README.md
 packages/server/LICENSE

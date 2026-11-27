@@ -1,4 +1,4 @@
-import type { Feedback, RequirementNode, Session } from '@clarifyai/shared';
+import type { Feedback, NodeSuggestion, RequirementNode, Session } from '@clarifyai/shared';
 
 /** 开发态经 Vite 代理同源；生产态由后端静态托管，同样是同源 */
 const BASE = '/api';
@@ -30,6 +30,11 @@ export function fetchSession(id: string): Promise<{ session: Session }> {
   return request(`/sessions/${encodeURIComponent(id)}`);
 }
 
+/** 删除一次澄清记录（会话文件会被直接删除，不可恢复） */
+export function deleteSession(id: string): Promise<{ ok: boolean }> {
+  return request(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 /** 画布上的即时编辑。不推进轮次，因此不会唤醒主 Agent */
 export function patchNodes(
   id: string,
@@ -45,7 +50,12 @@ export function patchNodes(
 /** 用户点击「确认本轮 / 继续拆 / 放弃」—— 这一步才真正把结果回灌给主 Agent */
 export function submitFeedback(
   id: string,
-  body: { action: 'confirmed' | 'need-more' | 'abort'; userFreeText?: string; expandRequests?: string[] },
+  body: {
+    action: 'confirmed' | 'need-more' | 'abort';
+    userFreeText?: string;
+    expandRequests?: string[];
+    suggestRequests?: string[];
+  },
 ): Promise<{ feedback: Feedback }> {
   return request(`/sessions/${encodeURIComponent(id)}/feedback`, {
     method: 'POST',
@@ -53,6 +63,19 @@ export function submitFeedback(
   });
 }
 
-export function fetchSpec(id: string): Promise<{ markdown: string }> {
-  return request(`/sessions/${encodeURIComponent(id)}/spec`);
+/** 裁决一条 AI 建议：采纳才写入需求树 */
+export function resolveSuggestion(
+  id: string,
+  suggestionId: string,
+  accept: boolean,
+): Promise<{
+  suggestion: NodeSuggestion;
+  upserted: RequirementNode[];
+  removedIds: string[];
+  session: Session;
+}> {
+  return request(`/sessions/${encodeURIComponent(id)}/suggestions/${encodeURIComponent(suggestionId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ accept }),
+  });
 }
